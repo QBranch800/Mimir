@@ -2,3 +2,6 @@ venv/
 .env
 __pycache__/
 .DS_Store
+results.json
+filtered.json
+scored.json
