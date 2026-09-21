@@ -3,5 +3,7 @@ venv/
 __pycache__/
 .DS_Store
 results.json
+gdelt_results.json
 filtered.json
 scored.json
+NEXT_STEPS.md

@@ -1,6 +1,8 @@
 import json
 import os
 import time
+import requests
+import trafilatura
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -13,6 +15,10 @@ MODEL = "gemini-3.6-flash"
 BATCH_SIZE = 50
 MAX_ATTEMPTS = 4
 RETRY_CODES = {429, 503}
+MIN_SCORE = 4
+TEXT_CANDIDATES = 20
+TITLE_STAGE_CHARS = 300
+TEXT_STAGE_CHARS = 1500
 
 SYSTEM_PROMPT = """You rate news articles for a daily briefing aimed at investors who want
 genuinely market-moving news across: US macroeconomics, US monetary policy, US fiscal policy,
@@ -26,6 +32,14 @@ Score each article's significance from 1 to 10:
 - 3-5: relevant but routine or narrow (single-company news, analyst opinions, commentary)
 - 1-2: noise (press releases, marketing, product announcements, stock tips, filings)
 
+Each article line shows: id | source | how many outlets covered the story | title | summary.
+- Some articles have no summary, only a title. Score those conservatively and do not assume
+  details the title does not state.
+- Wider coverage (more outlets) is a mild signal that a story matters, but never a reason on
+  its own to score high.
+- Give each article a story_id. Articles about the same underlying event or story must share
+  the same story_id, and unrelated articles must have different story_ids.
+
 Give a one-sentence reason for each score. Return one entry per article, using the id given."""
 
 
@@ -33,21 +47,17 @@ class Score(BaseModel):
     id: int
     score: int
     reason: str
+    story_id: int
 
 
-with open("filtered.json") as f:
-    articles = json.load(f)
-
-scored = []
-for start in range(0, len(articles), BATCH_SIZE):
-    batch = articles[start:start + BATCH_SIZE]
-    print(f"Scoring articles {start + 1}-{start + len(batch)} of {len(articles)}...")
-
+def score_batch(batch, chars):
     lines = []
     for i, article in enumerate(batch):
-        lines.append(f"id {i} | {article['source']} | {article['title']} | {article['summary'][:300]}")
+        lines.append(
+            f"id {i} | {article['source']} | {article['coverage_count']} outlet(s) | "
+            f"{article['title']} | {article['summary'][:chars]}"
+        )
 
-    scores = None
     for attempt in range(MAX_ATTEMPTS):
         try:
             response = client.models.generate_content(
@@ -60,37 +70,97 @@ for start in range(0, len(articles), BATCH_SIZE):
                     temperature=0,
                 ),
             )
-            scores = json.loads(response.text)
-            break
+            return json.loads(response.text)
         except Exception as e:
             retryable = getattr(e, "code", None) in RETRY_CODES
             if not retryable or attempt == MAX_ATTEMPTS - 1:
                 print(f"Batch failed: {e}")
-                break
+                return None
             wait = 10 * 2 ** attempt
             print(f"Error {e.code}, retrying in {wait}s (attempt {attempt + 2} of {MAX_ATTEMPTS})...")
             time.sleep(wait)
 
+
+def fetch_text(url):
+    try:
+        response = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0 (compatible; Mimir/0.1)"})
+        response.raise_for_status()
+        text = trafilatura.extract(response.text)
+    except Exception:
+        return ""
+    return (text or "")[:TEXT_STAGE_CHARS]
+
+
+with open("filtered.json") as f:
+    articles = json.load(f)
+
+# Stage 1: score everything from title (and summary where there is one)
+scored = []
+for start in range(0, len(articles), BATCH_SIZE):
+    batch = articles[start:start + BATCH_SIZE]
+    print(f"Scoring articles {start + 1}-{start + len(batch)} of {len(articles)}...")
+
+    scores = score_batch(batch, TITLE_STAGE_CHARS)
     if scores is None:
         continue
 
+    # articles about the same story share a story_id: keep only the best-scoring one
+    stories = {}
     for item in scores:
         if 0 <= item["id"] < len(batch):
-            article = batch[item["id"]]
-            article["significance"] = item["score"]
-            article["significance_reason"] = item["reason"]
-            scored.append(article)
+            stories.setdefault(item["story_id"], []).append((item, batch[item["id"]]))
+
+    for members in stories.values():
+        best_item, best = max(members, key=lambda m: m[0]["score"])
+        best["significance"] = best_item["score"]
+        best["significance_reason"] = best_item["reason"]
+        for _, other in members:
+            if other is not best:
+                best["coverage_count"] += other["coverage_count"]
+                best["also_covered_by"] += [other["source"]] + other["also_covered_by"]
+        best["also_covered_by"] = sorted(set(best["also_covered_by"]))
+        scored.append(best)
 
     time.sleep(13)
 
 if not scored:
     raise SystemExit("Nothing was scored, so scored.json was left untouched.")
 
-scored.sort(key=lambda a: a["significance"], reverse=True)
+# Stage 2: articles with no summary get their page text fetched and are scored again,
+# but only the most promising ones, to keep page downloads and API requests low
+no_summary = [a for a in scored if not a["summary"]]
+candidates = sorted(no_summary, key=lambda a: a["significance"], reverse=True)[:TEXT_CANDIDATES]
+print(f"Fetching page text for {len(candidates)} top articles that have no summary...")
+for article in candidates:
+    text = fetch_text(article["url"])
+    if text:
+        article["summary"] = text
+        article["text_fetched"] = True
+    time.sleep(1)
+
+rescore = [a for a in candidates if a.get("text_fetched")]
+print(f"Got text for {len(rescore)} of {len(candidates)}. Scoring those again...")
+if rescore:
+    scores = score_batch(rescore, TEXT_STAGE_CHARS)
+    if scores:
+        for item in scores:
+            if 0 <= item["id"] < len(rescore):
+                article = rescore[item["id"]]
+                article["first_pass_significance"] = article["significance"]
+                article["significance"] = item["score"]
+                article["significance_reason"] = item["reason"]
+
+before = len(scored)
+scored = [a for a in scored if a["significance"] >= MIN_SCORE]
+print(f"Dropped {before - len(scored)} articles scoring below {MIN_SCORE}.")
+if not scored:
+    raise SystemExit("Nothing scored high enough, so scored.json was left untouched.")
+
+scored.sort(key=lambda a: (a["significance"], a["coverage_count"]), reverse=True)
 
 with open("scored.json", "w") as f:
     json.dump(scored, f, indent=2)
 
-print(f"Scored {len(scored)} of {len(articles)} articles. Top 15:")
+print(f"Kept {len(scored)} of {len(articles)} articles. Top 15:")
 for article in scored[:15]:
-    print(f"{article['significance']:>2}  [{article['topic']}] {article['title']}")
+    print(f"{article['significance']:>2}  x{article['coverage_count']}  [{article['topic']}] {article['title']}")
