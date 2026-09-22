@@ -13,8 +13,12 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 MODEL = "gemini-3.6-flash"
 BATCH_SIZE = 150
-MAX_ATTEMPTS = 4
+MAX_ATTEMPTS = 3
 RETRY_CODES = {429, 503}
+# Every call counts against the free tier's 20 a day, including ones the server fails.
+# A clean run costs two, so this leaves room for a few retries without letting a bad
+# day at Google spend the whole allowance.
+REQUEST_BUDGET = 6
 MIN_SCORE = 4
 TEXT_CANDIDATES = 20
 TITLE_STAGE_CHARS = 300
@@ -74,7 +78,19 @@ class Score(BaseModel):
     category: str
 
 
+requests_made = 0
+out_of_quota = False
+
+
+def is_daily_quota(error):
+    """A daily quota 429 cannot recover during this run, unlike a per-minute one."""
+    text = str(error)
+    return "429" in text and ("PerDay" in text or "per day" in text)
+
+
 def score_batch(batch, chars):
+    global requests_made, out_of_quota
+
     lines = []
     for i, article in enumerate(batch):
         lines.append(
@@ -83,7 +99,13 @@ def score_batch(batch, chars):
         )
 
     for attempt in range(MAX_ATTEMPTS):
+        if requests_made >= REQUEST_BUDGET:
+            print(f"Stopping: this run has already used its budget of {REQUEST_BUDGET} "
+                  f"requests, and the free tier only allows 20 a day.")
+            return None
+
         try:
+            requests_made += 1
             response = client.models.generate_content(
                 model=MODEL,
                 contents="\n".join(lines),
@@ -96,12 +118,19 @@ def score_batch(batch, chars):
             )
             return json.loads(response.text)
         except Exception as e:
+            # retrying this one only burns more of today's allowance for nothing
+            if is_daily_quota(e):
+                out_of_quota = True
+                print("Out of Gemini requests for today. The free tier allows 20 a day and "
+                      "resets at midnight Pacific.")
+                return None
             retryable = getattr(e, "code", None) in RETRY_CODES
             if not retryable or attempt == MAX_ATTEMPTS - 1:
                 print(f"Batch failed: {e}")
                 return None
             wait = 10 * 2 ** attempt
-            print(f"Error {e.code}, retrying in {wait}s (attempt {attempt + 2} of {MAX_ATTEMPTS})...")
+            print(f"Error {e.code}, retrying in {wait}s (attempt {attempt + 2} of {MAX_ATTEMPTS}; "
+                  f"{requests_made} of {REQUEST_BUDGET} budgeted requests used)...")
             time.sleep(wait)
 
 
@@ -152,9 +181,15 @@ for start in range(0, len(articles), BATCH_SIZE):
 if not scored:
     raise SystemExit("Nothing was scored, so scored.json was left untouched.")
 
-no_summary = [a for a in scored if not a["summary"]]
+# The second pass is an improvement, not a requirement, so skip it rather than spend
+# requests we may not have. What was scored above is still saved either way.
+no_summary = [] if (out_of_quota or requests_made >= REQUEST_BUDGET) else \
+    [a for a in scored if not a["summary"]]
+if out_of_quota:
+    print("Skipping the second scoring pass, since there are no requests left today.")
 candidates = sorted(no_summary, key=lambda a: a["significance"], reverse=True)[:TEXT_CANDIDATES]
-print(f"Fetching page text for {len(candidates)} top articles that have no summary...")
+if candidates:
+    print(f"Fetching page text for {len(candidates)} top articles that have no summary...")
 for article in candidates:
     text = fetch_text(article["url"])
     if text:
@@ -163,7 +198,8 @@ for article in candidates:
     time.sleep(1)
 
 rescore = [a for a in candidates if a.get("text_fetched")]
-print(f"Got text for {len(rescore)} of {len(candidates)}. Scoring those again...")
+if candidates:
+    print(f"Got text for {len(rescore)} of {len(candidates)}. Scoring those again...")
 if rescore:
     scores = score_batch(rescore, TEXT_STAGE_CHARS)
     if scores:
