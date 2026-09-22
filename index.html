@@ -8,9 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  /* Söhne is a licensed font from Klim Type Foundry. If you buy it, drop the web fonts in a
-     fonts/ folder and add an @font-face rule here; it is first in the stack so it takes over.
-     Inter is the closest freely available neo-grotesque and is used until then. */
+
   :root {
     --font: "Söhne", "Soehne", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 
@@ -85,14 +83,6 @@
   h1 { font-size: 52px; line-height: 1.02; letter-spacing: -0.035em; margin: 12px 0 8px; font-weight: 700; }
   .tagline { color: var(--ink-2); font-size: 17px; margin: 0; }
 
-  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 20px 0 4px; }
-  .tabs button {
-    font-size: 12px; padding: 5px 11px; border-radius: 999px;
-    color: var(--ink-3); border: 1px solid var(--rule);
-  }
-  .tabs button:hover { color: var(--ink); }
-  .tabs button[aria-selected="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
-
   .story {
     display: grid; grid-template-columns: 52px minmax(0,1fr) 108px;
     gap: 14px; align-items: start;
@@ -109,6 +99,9 @@
     font-size: 18.5px; line-height: 1.24; letter-spacing: -0.02em;
     font-weight: 600; margin: 7px 0 6px;
   }
+  .empty-row { cursor: default; }
+  .empty-row .rank, .empty-row .eyebrow { opacity: 0.55; }
+  .nothing { font-size: 17px; color: var(--ink-3); margin: 7px 0 6px; letter-spacing: -0.015em; }
   .story-dek { color: var(--ink-2); font-size: 13.5px; line-height: 1.45; margin: 0 0 9px; }
   .story-meta { color: var(--ink-3); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 7px; }
   .thumb {
@@ -120,24 +113,8 @@
   /* ---------- reading pane ---------- */
   .read-col {
     background: var(--panel); border-left: 1px solid var(--rule);
-    padding: 22px 40px 70px; min-width: 0;
+    padding: 56px 40px 70px; min-width: 0;
   }
-  .topbar { display: flex; align-items: center; gap: 16px; margin-bottom: 40px; }
-  .search {
-    flex: 1; display: flex; align-items: center; gap: 9px;
-    border: 1px solid var(--rule); border-radius: 9px; padding: 9px 13px; background: var(--bg);
-  }
-  .search svg { width: 15px; height: 15px; color: var(--ink-3); flex: none; }
-  .search input {
-    border: 0; outline: 0; background: none; color: var(--ink);
-    font: inherit; font-size: 14px; width: 100%;
-  }
-  .search input::placeholder { color: var(--ink-3); }
-  .avatar {
-    width: 34px; height: 34px; border-radius: 50%; background: var(--hover);
-    display: grid; place-items: center; font-size: 13px; color: var(--ink-2); flex: none;
-  }
-
   .read-eyebrow { display: flex; gap: 14px; margin-bottom: 14px; }
   h2.headline {
     font-size: 40px; line-height: 1.08; letter-spacing: -0.035em;
@@ -156,14 +133,6 @@
   }
   .read-meta a.action:hover { color: var(--ink); }
   .hero { width: 100%; border-radius: 4px; display: block; margin-bottom: 26px; background: var(--hover); }
-
-  .why { border-top: 1px solid var(--rule); padding-top: 18px; margin-bottom: 26px; }
-  .why h3 { font-size: 14px; font-weight: 600; margin: 0 0 14px; }
-  .facets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-  .facet { border-left: 1px solid var(--rule); padding-left: 14px; }
-  .facet:first-child { border-left: 0; padding-left: 0; }
-  .facet .n { font-size: 19px; color: var(--ink-3); font-weight: 500; display: block; margin-bottom: 5px; }
-  .facet p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ink-2); }
 
   .body p { font-size: 15.5px; line-height: 1.62; margin: 0 0 16px; color: var(--ink); }
   .readmore {
@@ -202,8 +171,6 @@
     .rank { font-size: 19px; }
     .story-title { font-size: 16.5px; }
     .thumb, .thumb-empty { width: 76px; height: 76px; }
-    .facets { grid-template-columns: 1fr; gap: 12px; }
-    .facet { border-left: 0; padding-left: 0; }
   }
   .close-read { display: none; margin-bottom: 14px; color: var(--ink-2); font-size: 14px; }
 </style>
@@ -226,20 +193,11 @@
       <div class="eyebrow" id="today"></div>
       <h1 id="viewTitle">Today</h1>
       <p class="tagline">What's moving markets today?</p>
-      <div class="tabs" id="tabs" role="tablist"></div>
     </div>
     <div id="stories"></div>
   </section>
 
   <section class="read-col" id="readCol">
-    <div class="topbar">
-      <label class="search">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="search" type="search" placeholder="Search news, topics or sources...">
-      </label>
-      <div class="avatar" title="Mimir">M</div>
-    </div>
     <button class="close-read" id="closeRead">&larr; Back to stories</button>
     <div id="reader"></div>
   </section>
@@ -247,12 +205,13 @@
 
 <script src="briefing_data.js" onerror="window.MIMIR_DATA_MISSING=true"></script>
 <script>
+// One story per category, in this order. The briefing is the leading story in each.
 const CATEGORIES = [
-  { key: "all",              label: "All" },
   { key: "monetary_policy",  label: "Monetary policy" },
   { key: "us_fiscal_policy", label: "US fiscal policy" },
   { key: "us_macro_data",    label: "US macro data" },
   { key: "geopolitics",      label: "Geopolitics" },
+  { key: "tech_and_ai",      label: "Tech and AI" },
 ];
 const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map(c => [c.key, c.label]));
 
@@ -263,13 +222,12 @@ const TOPIC_FALLBACK = {
   economy_fiscal:   "us_fiscal_policy",
   economy_macro:    "us_macro_data",
   geopolitics:      "geopolitics",
+  technology:       "tech_and_ai",
 };
 const MIN_SCORE = 4;
 
 let articles = [];
 let view = "today";       // today | saved | settings
-let tab = "all";
-let query = "";
 let selectedUrl = null;
 let saved = loadSaved();
 
@@ -301,18 +259,20 @@ function longDate(stamp) {
     { day: "numeric", month: "long", year: "numeric" }).toUpperCase() : "";
 }
 
+// The briefing is the single leading story in each category: highest significance,
+// breaking ties on how many outlets carried it.
 function pool() {
-  let list = articles.filter(a => a.significance >= MIN_SCORE);
-  if (view === "saved") list = articles.filter(a => saved.has(a.url));
-  if (tab !== "all") list = list.filter(a => categoryOf(a) === tab);
-  if (query) {
-    const q = query.toLowerCase();
-    list = list.filter(a =>
-      a.title.toLowerCase().includes(q) ||
-      (a.source || "").toLowerCase().includes(q) ||
-      (a.summary || "").toLowerCase().includes(q));
+  if (view === "saved") return articles.filter(a => saved.has(a.url));
+
+  const lead = [];
+  for (const c of CATEGORIES) {
+    const best = articles
+      .filter(a => a.significance >= MIN_SCORE && categoryOf(a) === c.key)
+      .sort((x, y) =>
+        y.significance - x.significance || (y.coverage_count || 0) - (x.coverage_count || 0))[0];
+    if (best) lead.push(best);
   }
-  return list;
+  return lead;
 }
 
 function el(tag, className, text) {
@@ -329,26 +289,8 @@ function renderNav() {
   for (const [key, label] of [["today","Today"],["saved","Saved"],["settings","Settings"]]) {
     const b = el("button", null, key === "saved" && saved.size ? `${label} (${saved.size})` : label);
     b.setAttribute("aria-current", String(view === key));
-    b.onclick = () => { view = key; tab = "all"; render(); };
+    b.onclick = () => { view = key; selectedUrl = null; render(); };
     nav.append(b);
-  }
-}
-
-function renderTabs() {
-  const tabs = document.getElementById("tabs");
-  tabs.replaceChildren();
-  if (view === "settings") return;
-  const base = view === "saved"
-    ? articles.filter(a => saved.has(a.url))
-    : articles.filter(a => a.significance >= MIN_SCORE);
-  for (const c of CATEGORIES) {
-    const n = c.key === "all" ? base.length : base.filter(a => categoryOf(a) === c.key).length;
-    if (!n && c.key !== "all") continue;
-    const b = el("button", null, `${c.label} ${n}`);
-    b.setAttribute("role", "tab");
-    b.setAttribute("aria-selected", String(tab === c.key));
-    b.onclick = () => { tab = c.key; render(); };
-    tabs.append(b);
   }
 }
 
@@ -374,7 +316,21 @@ function renderStories() {
     return;
   }
 
-  list.forEach((a, i) => {
+  const rows = (view === "today")
+    ? CATEGORIES.map(c => [c, list.find(a => categoryOf(a) === c.key)])
+    : list.map(a => [{ key: categoryOf(a), label: CATEGORY_LABEL[categoryOf(a)] || "Other" }, a]);
+
+  rows.forEach(([cat, a], i) => {
+    if (!a) {
+      const empty = el("div", "story empty-row");
+      empty.append(el("div", "rank", String(i + 1).padStart(2, "0")));
+      const mid = el("div");
+      mid.append(el("div", "eyebrow", cat.label));
+      mid.append(el("div", "nothing", "Nothing significant today"));
+      empty.append(mid, el("div", "thumb-empty"));
+      host.append(empty);
+      return;
+    }
     const row = el("button", "story");
     row.setAttribute("aria-current", String(a.url === selectedUrl));
     row.onclick = () => { selectedUrl = a.url; render(); document.getElementById("readCol").classList.add("open"); };
@@ -382,14 +338,13 @@ function renderStories() {
     row.append(el("div", "rank", String(i + 1).padStart(2, "0")));
 
     const mid = el("div");
-    mid.append(el("div", "eyebrow", CATEGORY_LABEL[categoryOf(a)] || "Other"));
+    mid.append(el("div", "eyebrow", cat.label));
     mid.append(el("div", "story-title", a.title));
     if (a.summary) {
       mid.append(el("p", "story-dek", a.summary.slice(0, 145) + (a.summary.length > 145 ? "…" : "")));
     }
     const meta = el("div", "story-meta");
     meta.append(el("span", null, a.source));
-    meta.append(sep(), el("span", null, `significance ${a.significance}`));
     const rel = relativeTime(a.time_published);
     if (rel) meta.append(sep(), el("span", null, rel));
     mid.append(meta);
@@ -453,26 +408,6 @@ function renderReader() {
     host.append(hero);
   }
 
-  // Facts Mimir actually knows, in place of the "key takeaways" a publisher would write.
-  const why = el("div", "why");
-  why.append(el("h3", null, "Why this is in the briefing"));
-  const facets = el("div", "facets");
-  const outlets = article.coverage_count > 1
-    ? `Covered by ${article.coverage_count} outlets: ${[article.source, ...(article.also_covered_by || [])].join(", ")}.`
-    : "Reported by this outlet alone so far.";
-  const items = [
-    ["01", article.significance_reason || "No reason recorded."],
-    ["02", `Scored ${article.significance} out of 10 for significance.`],
-    ["03", outlets],
-  ];
-  for (const [n, body] of items) {
-    const f = el("div", "facet");
-    f.append(el("span", "n", n), el("p", null, body));
-    facets.append(f);
-  }
-  why.append(facets);
-  host.append(why);
-
   const body = el("div", "body");
   if (article.summary) body.append(el("p", null, article.summary));
   const more = el("a", "readmore", `Read the full article at ${article.source} →`);
@@ -487,12 +422,9 @@ function render() {
       { weekday: "long", day: "numeric", month: "long", year: "numeric" }).toUpperCase();
   document.getElementById("viewTitle").textContent =
     view === "saved" ? "Saved" : view === "settings" ? "Settings" : "Today";
-  renderNav(); renderTabs(); renderStories(); renderReader();
+  renderNav(); renderStories(); renderReader();
 }
 
-document.getElementById("search").addEventListener("input", e => {
-  query = e.target.value.trim(); selectedUrl = null; render();
-});
 document.getElementById("closeRead").onclick = () =>
   document.getElementById("readCol").classList.remove("open");
 
