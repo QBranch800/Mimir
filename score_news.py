@@ -12,8 +12,6 @@ load_dotenv()
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 MODEL = "gemini-3.6-flash"
-# Gemini can only merge duplicate stories within a single batch, so keeping everything in one
-# batch both catches cross-batch duplicates and costs fewer requests against the daily quota.
 BATCH_SIZE = 150
 MAX_ATTEMPTS = 4
 RETRY_CODES = {429, 503}
@@ -55,6 +53,10 @@ Each article line shows: id | source | how many outlets covered the story | titl
   its own to score high.
 - Give each article a story_id. Articles about the same underlying event or story must share
   the same story_id, and unrelated articles must have different story_ids.
+- Give each article the category it belongs to, as one of exactly these strings:
+  "monetary_policy", "us_fiscal_policy", "us_macro_data", "geopolitics", or "none" if it does
+  not belong to any of the four. Judge this by what the article is actually about, not by the
+  publication or section it came from.
 
 Give a one-sentence reason for each score. Return one entry per article, using the id given."""
 
@@ -64,6 +66,7 @@ class Score(BaseModel):
     score: int
     reason: str
     story_id: int
+    category: str
 
 
 def score_batch(batch, chars):
@@ -130,6 +133,7 @@ for start in range(0, len(articles), BATCH_SIZE):
         best_item, best = max(members, key=lambda m: m[0]["score"])
         best["significance"] = best_item["score"]
         best["significance_reason"] = best_item["reason"]
+        best["category"] = best_item["category"]
         for _, other in members:
             if other is not best:
                 best["coverage_count"] += other["coverage_count"]
@@ -143,8 +147,6 @@ for start in range(0, len(articles), BATCH_SIZE):
 if not scored:
     raise SystemExit("Nothing was scored, so scored.json was left untouched.")
 
-# Stage 2: articles with no summary get their page text fetched and are scored again,
-# but only the most promising ones, to keep page downloads and API requests low
 no_summary = [a for a in scored if not a["summary"]]
 candidates = sorted(no_summary, key=lambda a: a["significance"], reverse=True)[:TEXT_CANDIDATES]
 print(f"Fetching page text for {len(candidates)} top articles that have no summary...")
@@ -166,14 +168,21 @@ if rescore:
                 article["first_pass_significance"] = article["significance"]
                 article["significance"] = item["score"]
                 article["significance_reason"] = item["reason"]
+                article["category"] = item["category"]
 
-# Everything scored is saved, including low scorers, so the rubric can be reviewed later.
-# MIN_SCORE only decides what counts as briefing-worthy when reading the file back.
+
 scored.sort(key=lambda a: (a["significance"], a["coverage_count"]), reverse=True)
 briefing = [a for a in scored if a["significance"] >= MIN_SCORE]
 
 with open("scored.json", "w") as f:
     json.dump(scored, f, indent=2)
+
+# Same data as a script file, so index.html also works when opened directly from the
+# file system, where the browser refuses to fetch scored.json.
+with open("briefing_data.js", "w") as f:
+    f.write("window.MIMIR_DATA = ")
+    json.dump(scored, f)
+    f.write(";\n")
 
 print(f"Scored {len(scored)} of {len(articles)} articles; "
       f"{len(briefing)} scored {MIN_SCORE} or above. Top 15:")

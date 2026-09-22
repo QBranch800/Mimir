@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mimir</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface: #f6f7f9;
+    --border: #e2e5ea;
+    --text: #14171c;
+    --muted: #666f7d;
+    --accent: #1f5fd6;
+    --high: #b3341c;
+    --mid: #9a6512;
+    --low: #5b6470;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171c;
+      --surface: #1c2027;
+      --border: #2c323c;
+      --text: #e8eaed;
+      --muted: #98a1b0;
+      --accent: #7aa7f5;
+      --high: #f08a72;
+      --mid: #e0b055;
+      --low: #98a1b0;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171c;
+    --surface: #1c2027;
+    --border: #2c323c;
+    --text: #e8eaed;
+    --muted: #98a1b0;
+    --accent: #7aa7f5;
+    --high: #f08a72;
+    --mid: #e0b055;
+    --low: #98a1b0;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0 16px 64px;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; }
+
+  header { padding: 40px 0 24px; border-bottom: 1px solid var(--border); }
+  h1 { margin: 0; font-size: 30px; letter-spacing: -0.02em; }
+  .sub { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+
+  nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 8px; }
+  .tab {
+    padding: 7px 13px; border: 1px solid var(--border); border-radius: 999px;
+    background: transparent; color: var(--muted); font-size: 14px; cursor: pointer;
+    font-family: inherit;
+  }
+  .tab:hover { border-color: var(--accent); color: var(--text); }
+  .tab[aria-selected="true"] {
+    background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500;
+  }
+
+  .controls {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 12px 0 4px; color: var(--muted); font-size: 14px;
+  }
+  .controls label { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+
+  article {
+    padding: 20px 0; border-bottom: 1px solid var(--border);
+    display: grid; grid-template-columns: 42px 1fr; gap: 16px;
+  }
+  .score {
+    font-size: 19px; font-weight: 600; text-align: center;
+    padding-top: 1px; font-variant-numeric: tabular-nums;
+  }
+  .s-high { color: var(--high); }
+  .s-mid  { color: var(--mid); }
+  .s-low  { color: var(--low); }
+
+  h2 { margin: 0 0 7px; font-size: 17px; line-height: 1.35; font-weight: 600; }
+  h2 a { color: var(--text); text-decoration: none; }
+  h2 a:hover { color: var(--accent); text-decoration: underline; }
+
+  .reason { margin: 0 0 9px; color: var(--muted); font-size: 14px; }
+  .meta { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .meta .dot { opacity: 0.45; }
+  .pill {
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 1px 6px; font-size: 12px;
+  }
+
+  .empty, .error {
+    padding: 48px 0; text-align: center; color: var(--muted);
+  }
+  .error code {
+    display: inline-block; margin-top: 10px; padding: 8px 12px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; font-size: 13px; color: var(--text);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Mimir</h1>
+    <p class="sub" id="sub">Loading…</p>
+  </header>
+
+  <nav id="tabs" role="tablist"></nav>
+
+  <div class="controls">
+    <label>
+      <input type="checkbox" id="showAll">
+      Include low-scoring articles (below 4)
+    </label>
+  </div>
+
+  <main id="list"></main>
+</div>
+
+<!-- Written by score_news.py. Only used when this page is opened directly from the file
+     system, where the browser will not let it fetch scored.json. -->
+<script src="briefing_data.js" onerror="window.MIMIR_DATA_MISSING = true"></script>
+<script>
+// The four categories score_news.py assigns, plus a catch-all first tab.
+const CATEGORIES = [
+  { key: "all",              label: "All" },
+  { key: "monetary_policy",  label: "Monetary policy" },
+  { key: "us_fiscal_policy", label: "US fiscal policy" },
+  { key: "us_macro_data",    label: "US macro data" },
+  { key: "geopolitics",      label: "Geopolitics" },
+];
+
+// Articles scored before the category field existed only have a fetch topic,
+// which is a rough stand-in: it says where the article came from, not what it is about.
+const TOPIC_FALLBACK = {
+  economy_monetary: "monetary_policy",
+  economy_fiscal:   "us_fiscal_policy",
+  economy_macro:    "us_macro_data",
+  geopolitics:      "geopolitics",
+};
+
+const MIN_SCORE = 4;
+
+let articles = [];
+let activeTab = "all";
+let showAll = false;
+
+function categoryOf(article) {
+  return article.category || TOPIC_FALLBACK[article.topic] || "none";
+}
+
+// time_published looks like "20260921T064134"
+function formatDate(stamp) {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})/.exec(stamp || "");
+  if (!m) return "";
+  const [, y, mo, d, h, mi] = m;
+  const date = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi));
+  return date.toLocaleString(undefined, {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+function scoreClass(score) {
+  if (score >= 7) return "s-high";
+  if (score >= MIN_SCORE) return "s-mid";
+  return "s-low";
+}
+
+function visibleArticles() {
+  return articles.filter(a => {
+    if (!showAll && a.significance < MIN_SCORE) return false;
+    if (activeTab !== "all" && categoryOf(a) !== activeTab) return false;
+    return true;
+  });
+}
+
+function countFor(key) {
+  return articles.filter(a => {
+    if (!showAll && a.significance < MIN_SCORE) return false;
+    return key === "all" || categoryOf(a) === key;
+  }).length;
+}
+
+function renderTabs() {
+  const nav = document.getElementById("tabs");
+  nav.replaceChildren();
+  for (const cat of CATEGORIES) {
+    const btn = document.createElement("button");
+    btn.className = "tab";
+    btn.type = "button";
+    btn.setAttribute("role", "tab");
+    btn.setAttribute("aria-selected", String(cat.key === activeTab));
+    btn.textContent = `${cat.label} (${countFor(cat.key)})`;
+    btn.addEventListener("click", () => {
+      activeTab = cat.key;
+      render();
+    });
+    nav.append(btn);
+  }
+}
+
+function renderList() {
+  const list = document.getElementById("list");
+  const items = visibleArticles();
+  list.replaceChildren();
+
+  if (!items.length) {
+    const p = document.createElement("p");
+    p.className = "empty";
+    p.textContent = "Nothing in this category.";
+    list.append(p);
+    return;
+  }
+
+  for (const a of items) {
+    const el = document.createElement("article");
+
+    const score = document.createElement("div");
+    score.className = `score ${scoreClass(a.significance)}`;
+    score.textContent = a.significance;
+
+    const body = document.createElement("div");
+
+    const h2 = document.createElement("h2");
+    const link = document.createElement("a");
+    link.href = a.url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = a.title;
+    h2.append(link);
+
+    const reason = document.createElement("p");
+    reason.className = "reason";
+    reason.textContent = a.significance_reason || "";
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+
+    const source = document.createElement("span");
+    source.textContent = a.source;
+    meta.append(source);
+
+    const when = formatDate(a.time_published);
+    if (when) {
+      meta.append(sep(), text(when));
+    }
+    if (a.coverage_count > 1) {
+      const outlets = [a.source, ...(a.also_covered_by || [])].join(", ");
+      const pill = document.createElement("span");
+      pill.className = "pill";
+      pill.textContent = `${a.coverage_count} outlets`;
+      pill.title = outlets;
+      meta.append(sep(), pill);
+    }
+
+    body.append(h2, reason, meta);
+    el.append(score, body);
+    list.append(el);
+  }
+}
+
+function sep() {
+  const s = document.createElement("span");
+  s.className = "dot";
+  s.textContent = "·";
+  return s;
+}
+
+function text(value) {
+  const s = document.createElement("span");
+  s.textContent = value;
+  return s;
+}
+
+function render() {
+  renderTabs();
+  renderList();
+  const shown = visibleArticles().length;
+  document.getElementById("sub").textContent =
+    `${shown} ${shown === 1 ? "story" : "stories"} · scored by significance, highest first`;
+}
+
+function showError() {
+  document.getElementById("sub").textContent = "Could not load scored.json";
+  const list = document.getElementById("list");
+  list.replaceChildren();
+  const p = document.createElement("p");
+  p.className = "error";
+  p.append(
+    text("Run the pipeline first, then serve this folder so the browser can read the file:"),
+    document.createElement("br"),
+  );
+  const code = document.createElement("code");
+  code.textContent = "python3 -m http.server 8000";
+  p.append(code);
+  list.append(p);
+}
+
+async function load() {
+  // Works when the folder is served over http. Opening index.html directly with
+  // file:// blocks fetch, so fall back to briefing_data.js if score_news.py wrote one.
+  try {
+    const response = await fetch("scored.json", { cache: "no-store" });
+    if (!response.ok) throw new Error(response.statusText);
+    articles = await response.json();
+  } catch (err) {
+    if (Array.isArray(window.MIMIR_DATA)) {
+      articles = window.MIMIR_DATA;
+    } else {
+      showError();
+      return;
+    }
+  }
+  articles.sort((a, b) =>
+    b.significance - a.significance || (b.coverage_count || 0) - (a.coverage_count || 0));
+  render();
+}
+
+document.getElementById("showAll").addEventListener("change", (e) => {
+  showAll = e.target.checked;
+  render();
+});
+
+load();
+</script>
+</body>
+</html>
