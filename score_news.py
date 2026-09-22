@@ -12,7 +12,9 @@ load_dotenv()
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 MODEL = "gemini-3.6-flash"
-BATCH_SIZE = 50
+# Gemini can only merge duplicate stories within a single batch, so keeping everything in one
+# batch both catches cross-batch duplicates and costs fewer requests against the daily quota.
+BATCH_SIZE = 150
 MAX_ATTEMPTS = 4
 RETRY_CODES = {429, 503}
 MIN_SCORE = 4
@@ -20,17 +22,31 @@ TEXT_CANDIDATES = 20
 TITLE_STAGE_CHARS = 300
 TEXT_STAGE_CHARS = 1500
 
-SYSTEM_PROMPT = """You rate news articles for a daily briefing aimed at investors who want
-genuinely market-moving news across: US macroeconomics, US monetary policy, US fiscal policy,
-geopolitics, and technology.
+SYSTEM_PROMPT = """You rate news articles for a daily briefing that covers exactly four categories.
+Score an article's significance only in relation to these:
+
+1. Monetary policy: central bank actions, statements, rate decisions, speeches, or meeting
+   minutes from the Fed, ECB, BoE, BoJ, or other major central banks.
+2. US fiscal policy: US government budget, taxation, spending, or debt/deficit policy actions.
+3. US macroeconomic data: CPI, jobs reports, GDP, PMI, retail sales, and other major US
+   economic releases.
+4. Geopolitics: events with material economic or market relevance, such as conflicts,
+   sanctions, elections, trade policy, or major diplomatic developments.
+
+An article that does not fall into any of these four categories is noise for this briefing,
+whatever else it is about, and should score 1-2 even if it involves a well-known company or a
+large dollar figure.
 
 Score each article's significance from 1 to 10:
-- 9-10: moves whole markets or the economy (central bank decisions, major economic data,
-  major legislation or tariffs, wars or sanctions, systemic events)
-- 6-8: important for a sector or sizeable group of companies, or a strong signal about the
-  economy (big earnings surprises, major regulation, large deals)
-- 3-5: relevant but routine or narrow (single-company news, analyst opinions, commentary)
-- 1-2: noise (press releases, marketing, product announcements, stock tips, filings)
+- 9-10: a major event in one of the four categories that could move whole markets or the
+  economy (a rate decision, a surprise CPI print, a war or major sanctions package, a
+  government shutdown or debt-ceiling resolution)
+- 6-8: a real development in one of the four categories, but narrower or incremental (a
+  central bank official's speech, a single data revision, a regional escalation, a trade
+  policy proposal)
+- 3-5: only loosely touches one of the four categories, or is a minor and expected data point
+- 1-2: does not meaningfully relate to any of the four categories (single-company news,
+  analyst commentary, product launches, routine corporate filings, industry press releases)
 
 Each article line shows: id | source | how many outlets covered the story | title | summary.
 - Some articles have no summary, only a title. Score those conservatively and do not assume
@@ -121,7 +137,8 @@ for start in range(0, len(articles), BATCH_SIZE):
         best["also_covered_by"] = sorted(set(best["also_covered_by"]))
         scored.append(best)
 
-    time.sleep(13)
+    if start + BATCH_SIZE < len(articles):
+        time.sleep(13)
 
 if not scored:
     raise SystemExit("Nothing was scored, so scored.json was left untouched.")
@@ -150,17 +167,15 @@ if rescore:
                 article["significance"] = item["score"]
                 article["significance_reason"] = item["reason"]
 
-before = len(scored)
-scored = [a for a in scored if a["significance"] >= MIN_SCORE]
-print(f"Dropped {before - len(scored)} articles scoring below {MIN_SCORE}.")
-if not scored:
-    raise SystemExit("Nothing scored high enough, so scored.json was left untouched.")
-
+# Everything scored is saved, including low scorers, so the rubric can be reviewed later.
+# MIN_SCORE only decides what counts as briefing-worthy when reading the file back.
 scored.sort(key=lambda a: (a["significance"], a["coverage_count"]), reverse=True)
+briefing = [a for a in scored if a["significance"] >= MIN_SCORE]
 
 with open("scored.json", "w") as f:
     json.dump(scored, f, indent=2)
 
-print(f"Kept {len(scored)} of {len(articles)} articles. Top 15:")
-for article in scored[:15]:
+print(f"Scored {len(scored)} of {len(articles)} articles; "
+      f"{len(briefing)} scored {MIN_SCORE} or above. Top 15:")
+for article in briefing[:15]:
     print(f"{article['significance']:>2}  x{article['coverage_count']}  [{article['topic']}] {article['title']}")

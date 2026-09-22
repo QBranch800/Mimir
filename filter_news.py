@@ -4,12 +4,29 @@ import os
 import re
 from urllib.parse import urlparse
 
-BLOCKED_SOURCES = {"MarketBeat", "CBIZ"}
+# Sources that only ever produce algorithmic single-stock filler or SEO content farming
+BLOCKED_SOURCES = {"MarketBeat", "CBIZ", "AD HOC NEWS", "Kalkine Media"}
 BLOCKED_TITLE_PATTERNS = [
     re.compile(r"\b[\d,]+ shares\b", re.I),
     re.compile(r"\b(takes?|buys?|acquires?|sells?)\b.*\b(position|stake|shares)\b", re.I),
     re.compile(r"\bstock holdings\b", re.I),
     re.compile(r"\b(average|consensus) (rating|recommendation)\b", re.I),
+    # content-farm question headlines, e.g. "What Is Driving Attention to X (NASDAQ:Y)?"
+    re.compile(r"^(what|why|could|is|are|has|does|do)\b.{0,80}\([A-Z]{2,6}:[A-Z.]+\)", re.I),
+    # algorithmic stock-movement filler, e.g. "X stock edges higher after ..."
+    re.compile(r"\bstock (edges|gains?|holds?|slips?|trades?|heads?|dips?|climbs?)\b", re.I),
+]
+
+# Recurring market roundups and previews. These are competing briefings, not discrete events,
+# so they crowd out real news even when their content is on topic.
+ROUNDUP_TITLE_PATTERNS = [
+    re.compile(r"\bdaily open\b", re.I),
+    re.compile(r"\bmarkets? brief\b", re.I),
+    re.compile(r"\bwhat to expect in markets\b", re.I),
+    re.compile(r"\bthis week in\b", re.I),
+    re.compile(r"\bweek ahead\b", re.I),
+    re.compile(r"\bweekly (recap|roundup|preview|wrap)\b", re.I),
+    re.compile(r"\b(opening|closing) bell\b", re.I),
 ]
 
 # GDELT indexes thousands of outlets, so only geopolitics articles from these are kept
@@ -60,10 +77,14 @@ def is_allowed_domain(domain):
 kept = []
 kept_keys = []
 not_allowed = 0
+roundups = 0
 for article in unique.values():
     if article["source"] in BLOCKED_SOURCES:
         continue
     if any(p.search(article["title"]) for p in BLOCKED_TITLE_PATTERNS):
+        continue
+    if any(p.search(article["title"]) for p in ROUNDUP_TITLE_PATTERNS):
+        roundups += 1
         continue
     if article["topic"] == "geopolitics" and not is_allowed_domain(get_domain(article)):
         not_allowed += 1
@@ -89,6 +110,7 @@ for article in unique.values():
 total = sum(len(articles) for articles in results.values())
 print(f"{total} fetched -> {len(unique)} after URL dedupe -> {len(kept)} after filters and title dedupe")
 print(f"{not_allowed} geopolitics articles dropped because their source is not on the allowlist")
+print(f"{roundups} recurring market roundups/previews dropped")
 multi = sum(1 for a in kept if a["coverage_count"] > 1)
 print(f"{multi} stories were covered by more than one outlet")
 

@@ -20,8 +20,9 @@ With the virtual environment activated, run these in order:
 
 1. `python3 fetch_news.py` fetches headlines and saves them to `results.json`. The Alpha Vantage free tier allows about 25 requests a day, so avoid re-running it needlessly.
 2. `python3 fetch_gdelt.py` fetches geopolitics headlines from GDELT (no API key needed) and saves them to `gdelt_results.json`. GDELT limits requests to one every 5 seconds, so the script retries if it gets rate-limited.
-3. `python3 filter_news.py` merges both sources and saves `filtered.json`. It removes blocked sources and noisy titles, keeps GDELT geopolitics articles only from an allowlist of trusted outlets, and merges near-duplicate titles while counting how many outlets covered each story.
-4. `python3 score_news.py` asks Gemini to rate each article's significance from 1 to 10 based on its title. It then downloads the page text for the top 20 articles that have no summary and scores those again. Same-story articles are merged, anything scoring below 4 is dropped, and the rest is saved to `scored.json`, with the top 15 printed.
+3. `python3 fetch_newsapi.py` fetches geopolitics headlines from NewsAPI (free key required) for the last two days and saves them to `newsapi_results.json`. The free tier allows 100 requests a day; a full run uses four.
+4. `python3 filter_news.py` merges all three sources and saves `filtered.json`. It drops blocked sources, noisy titles and recurring market roundups, keeps geopolitics articles only from an allowlist of trusted outlets, and merges near-duplicate titles while counting how many outlets covered each story.
+5. `python3 score_news.py` asks Gemini to rate each article's significance from 1 to 10 against four categories: monetary policy, US fiscal policy, US macroeconomic data, and geopolitics. It then downloads the page text for the top articles that have no summary and scores those again. Every scored article is saved to `scored.json` (low scorers included, so the rubric can be reviewed), and the top 15 scoring 4 or above are printed.
 
 ## Roadmap
 
