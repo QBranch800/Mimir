@@ -1,9 +1,15 @@
 import json
-import re
+import os
 import time
-import requests
+from datetime import datetime, timedelta, timezone
 
-URL = "https://api.gdeltproject.org/api/v2/doc/doc"
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+API_KEY = os.getenv("NEWSAPI_KEY")
+
+URL = "https://newsapi.org/v2/everything"
 SEARCH_TERMS = [
     "sanctions", "tariffs", "trade war", "ceasefire", "summit", "diplomacy", "election",
     "coup", "insurgency", "sovereignty", "annexation", "embargo", "NATO", "alliance",
@@ -22,70 +28,64 @@ SEARCH_TERMS = [
     "strait", "canal transit",
     "military strike", "oil embargo", "nuclear talks",
 ]
-TERMS_PER_QUERY = 8
-RECORDS_PER_QUERY = 50
-MAX_ATTEMPTS = 5
-
-
-def clean_title(title):
-    return re.sub(r"\s+([,.;:?!)])", r"\1", title).strip()
+TERMS_PER_QUERY = 20  # NewsAPI's q parameter has a ~500 character limit
+LOOKBACK_DAYS = 2
+MAX_ATTEMPTS = 4
 
 
 def fetch_articles(terms):
     query = " OR ".join(f'"{term}"' for term in terms)
+    since = (datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
     params = {
-        "query": f"({query}) sourcelang:english",
-        "mode": "artlist",
-        "format": "json",
-        "maxrecords": RECORDS_PER_QUERY,
-        "timespan": "1d",
-        "sort": "hybridrel",
+        "q": query,
+        "language": "en",
+        "from": since,
+        "sortBy": "publishedAt",
+        "pageSize": 100,
+        "apiKey": API_KEY,
     }
     for attempt in range(MAX_ATTEMPTS):
-        response = requests.get(URL, params=params, timeout=30)
-        if response.status_code == 200:
-            try:
-                return response.json().get("articles", [])
-            except ValueError:
-                print(f"GDELT did not return JSON: {response.text[:100]}")
-                return None
-        wait = 10 * (attempt + 1)
-        print(f"GDELT returned {response.status_code}, retrying in {wait}s...")
-        time.sleep(wait)
+        response = requests.get(URL, params=params, timeout=20)
+        data = response.json()
+        if data.get("status") == "ok":
+            return data["articles"]
+        if response.status_code in (429, 426) and attempt < MAX_ATTEMPTS - 1:
+            wait = 15 * (attempt + 1)
+            print(f"NewsAPI rate limited ({data.get('code')}), retrying in {wait}s...")
+            time.sleep(wait)
+            continue
+        print(f"NewsAPI error: {data.get('code')} {data.get('message')}")
+        return None
     return None
 
 
 unique = {}
-consecutive_failures = 0
 for start in range(0, len(SEARCH_TERMS), TERMS_PER_QUERY):
     terms = SEARCH_TERMS[start:start + TERMS_PER_QUERY]
-    print(f"Fetching geopolitics from GDELT: {', '.join(terms[:3])}, ...")
+    print(f"Fetching geopolitics from NewsAPI: {', '.join(terms[:3])}, ...")
     items = fetch_articles(terms)
     if items is None:
-        print(f"That group failed, skipping it: {terms}")
-        consecutive_failures += 1
-        if consecutive_failures >= 2:
-            print("2 groups failed in a row, stopping instead of hammering GDELT further.")
-            break
+        print("That group failed, skipping it.")
         continue
-    consecutive_failures = 0
     for item in items:
+        if item.get("title") in (None, "[Removed]") or not item.get("url"):
+            continue
         unique.setdefault(item["url"], item)
-    time.sleep(20)
+    time.sleep(2)
 
 if not unique:
-    raise SystemExit("No GDELT results, so gdelt_results.json was left untouched.")
+    raise SystemExit("No NewsAPI results, so newsapi_results.json was left untouched.")
 
 articles = []
 for item in unique.values():
     articles.append({
-        "title": clean_title(item["title"]),
+        "title": item["title"],
         "url": item["url"],
-        "source": item["domain"],
-        "time_published": item["seendate"].rstrip("Z"),
-        "summary": "",
+        "source": item["source"]["name"],
+        "time_published": item["publishedAt"].replace("-", "").replace(":", "").rstrip("Z"),
+        "summary": item.get("description") or "",
     })
 
-with open("gdelt_results.json", "w") as f:
+with open("newsapi_results.json", "w") as f:
     json.dump({"geopolitics": articles}, f, indent=2)
-print(f"Saved {len(articles)} articles to gdelt_results.json")
+print(f"Saved {len(articles)} articles to newsapi_results.json")

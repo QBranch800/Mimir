@@ -2,6 +2,7 @@ import difflib
 import json
 import os
 import re
+from urllib.parse import urlparse
 
 BLOCKED_SOURCES = {"MarketBeat", "CBIZ"}
 BLOCKED_TITLE_PATTERNS = [
@@ -25,9 +26,12 @@ SIMILARITY_THRESHOLD = 0.8
 with open("results.json") as f:
     results = json.load(f)
 
-if os.path.exists("gdelt_results.json"):
-    with open("gdelt_results.json") as f:
-        results.update(json.load(f))
+for extra_file in ("gdelt_results.json", "newsapi_results.json"):
+    if os.path.exists(extra_file):
+        with open(extra_file) as f:
+            extra = json.load(f)
+        for topic, articles in extra.items():
+            results.setdefault(topic, []).extend(articles)
 
 unique = {}
 for topic, articles in results.items():
@@ -44,8 +48,13 @@ def normalize_title(title):
     return " ".join(title.split())
 
 
-def is_allowed_domain(source):
-    return any(source == d or source.endswith("." + d) for d in ALLOWED_GEOPOLITICS_DOMAINS)
+def get_domain(article):
+    netloc = urlparse(article["url"]).netloc.lower()
+    return netloc[4:] if netloc.startswith("www.") else netloc
+
+
+def is_allowed_domain(domain):
+    return any(domain == d or domain.endswith("." + d) for d in ALLOWED_GEOPOLITICS_DOMAINS)
 
 
 kept = []
@@ -56,7 +65,7 @@ for article in unique.values():
         continue
     if any(p.search(article["title"]) for p in BLOCKED_TITLE_PATTERNS):
         continue
-    if article["topic"] == "geopolitics" and not is_allowed_domain(article["source"]):
+    if article["topic"] == "geopolitics" and not is_allowed_domain(get_domain(article)):
         not_allowed += 1
         continue
 
