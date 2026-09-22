@@ -47,14 +47,25 @@ be no briefing to show. The individual steps can still be run on their own:
 
 ## Reading the briefing
 
-Open `index.html` in a browser. The briefing shows the single most significant story in each
-category, with a reading pane beside it. Settings has a theme switch, a significance
-threshold, control over which categories appear and in what order, and a way to clear saved
-stories.
+The best way is to run the local server:
 
-Opening the file directly works, because `score_news.py` also writes the data as
-`briefing_data.js` for that case. If you would rather serve it, run `python3 -m http.server
-8000` in this folder and open `http://localhost:8000`.
+```
+python3 app.py
+```
+
+then open `http://127.0.0.1:5111`. As well as the briefing, this gives you a Refresh button
+that runs the pipeline from the page, and somewhere to paste your API keys instead of editing
+`.env` by hand. It listens on localhost only: it can run the pipeline and write your keys, so
+it is not something to expose to a network. Set `PORT` to use a different port. It avoids
+port 5000 because macOS answers that with its AirPlay receiver.
+
+You can also just open `index.html` from the file system. `score_news.py` writes the data as
+`briefing_data.js` so that works with no server; refreshing and key entry are the only things
+that need `app.py`.
+
+Either way, the briefing shows the single most significant story in each category, with a
+reading pane beside it. Settings has a theme switch, a significance threshold, control over
+which categories appear and in what order, and a way to clear saved stories.
 
 ## Roadmap
 
@@ -65,6 +76,6 @@ Opening the file directly works, because `score_news.py` also writes the data as
 - [x] Read the briefing as a page, one leading story per category
 - [x] Settings: theme, significance threshold, category choice and order
 - [x] Run the whole pipeline with one command
-- [ ] Let the page trigger a fetch and re-score itself, rather than only showing the last run
+- [x] Refresh the briefing and save API keys from the page, via a local server
 - [ ] Add an industry dropdown
 - [ ] Wrap as a desktop app with Electron

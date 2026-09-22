@@ -185,6 +185,31 @@
   .cat-moves button:hover:not(:disabled) { border-color: var(--ink); color: var(--ink); }
   .cat-moves button:disabled { opacity: 0.3; cursor: default; }
 
+  button.primary {
+    border: 1px solid var(--accent); border-radius: 9px; padding: 8px 16px;
+    font-size: 13.5px; background: var(--accent); color: var(--bg); font-weight: 500;
+  }
+  button.primary:hover:not(:disabled) { opacity: 0.85; }
+  button.primary:disabled { opacity: 0.45; cursor: default; }
+  .set-error { font-size: 13px; color: #b3341c; margin: 10px 0 0; }
+  .run-step { margin: 10px 0 0; }
+  .log-line { margin: 6px 0 0; font-size: 12.5px; }
+  .log-line.bad { color: #b3341c; }
+
+  .keys { display: flex; flex-direction: column; gap: 14px; }
+  .key-row { display: flex; flex-direction: column; gap: 6px; }
+  .key-top { display: flex; align-items: baseline; gap: 9px; font-size: 14px; }
+  .key-state {
+    font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3);
+  }
+  .key-state.set { color: #2f7d32; }
+  .keys input {
+    border: 1px solid var(--rule); border-radius: 8px; padding: 8px 11px;
+    background: var(--bg); color: var(--ink); font: inherit; font-size: 13.5px;
+  }
+  .keys input:focus { outline: 0; border-color: var(--ink-3); }
+  .keys button { align-self: flex-start; }
+
   button.danger {
     border: 1px solid var(--rule); border-radius: 9px; padding: 8px 15px;
     font-size: 13.5px; color: var(--ink-2);
@@ -276,6 +301,7 @@ const DEFAULTS = {
 };
 
 let articles = [];
+let server = null;   // status from app.py, or null when opened as a file
 let view = "today";       // today | saved | settings
 let selectedUrl = null;
 let saved = loadSaved();
@@ -369,6 +395,19 @@ function settingsGroup(title, note) {
 }
 
 function renderSettings(host) {
+  // These two only work when app.py is serving the page: a file opened from disk
+  // has nothing to run the pipeline or write .env.
+  if (server) {
+    host.append(renderRefresh());
+    host.append(renderKeys());
+  } else {
+    const g = settingsGroup("Refreshing and API keys",
+      "Open Mimir through the local server to refresh the briefing and save your API " +
+      "keys here. Run python3 app.py in the project folder, then go to " +
+      "http://127.0.0.1:5000.");
+    host.append(g);
+  }
+
   // Appearance
   const appearance = settingsGroup("Appearance");
   const themes = el("div", "seg");
@@ -445,6 +484,121 @@ function renderSettings(host) {
   };
   savedGroup.append(clear);
   host.append(savedGroup);
+}
+
+function renderRefresh() {
+  const g = settingsGroup("Briefing");
+  const when = server.dataUpdated
+    ? `Last refreshed ${relativeFromSeconds(server.dataUpdated)}.`
+    : "No briefing has been built yet.";
+  g.append(el("p", "set-note", when));
+
+  const btn = el("button", "primary", server.running ? "Refreshing…" : "Refresh now");
+  btn.disabled = !!server.running;
+  btn.onclick = async () => {
+    btn.disabled = true;
+    btn.textContent = "Starting…";
+    try {
+      const r = await fetch("/api/refresh", { method: "POST" });
+      if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+      pollStatus();
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = "Refresh now";
+      g.append(el("p", "set-error", String(err.message || err)));
+    }
+  };
+  g.append(btn);
+
+  if (server.running && server.step) {
+    g.append(el("p", "set-note run-step", `${server.step}…  this takes a few minutes.`));
+  }
+  for (const entry of server.log || []) {
+    g.append(el("p", "set-note log-line" + (entry.ok ? "" : " bad"),
+      `${entry.ok ? "✓" : "✕"}  ${entry.step}${entry.detail ? " — " + entry.detail : ""}`));
+  }
+  if (server.ok === false && !server.running) {
+    g.append(el("p", "set-error", "The refresh did not finish. See the steps above."));
+  }
+  return g;
+}
+
+function renderKeys() {
+  const g = settingsGroup("API keys",
+    "Stored in the .env file on this machine, never sent anywhere but the API they " +
+    "belong to. Leave a field blank to keep the key already saved.");
+  const form = el("div", "keys");
+  const inputs = {};
+
+  for (const [name, label] of Object.entries(server.keyLabels || {})) {
+    const row = el("label", "key-row");
+    const top = el("div", "key-top");
+    top.append(el("span", null, label));
+    top.append(el("span", "key-state" + (server.keys[name] ? " set" : ""),
+      server.keys[name] ? "saved" : "not set"));
+    const input = el("input");
+    input.type = "password";
+    input.placeholder = server.keys[name] ? "••••••••  enter a new key to replace" : "Paste your key";
+    input.autocomplete = "off";
+    inputs[name] = input;
+    row.append(top, input);
+    form.append(row);
+  }
+
+  const save = el("button", "primary", "Save keys");
+  save.onclick = async () => {
+    const payload = {};
+    for (const [name, input] of Object.entries(inputs)) {
+      if (input.value.trim()) payload[name] = input.value.trim();
+    }
+    if (!Object.keys(payload).length) return;
+    save.disabled = true; save.textContent = "Saving…";
+    try {
+      const r = await fetch("/api/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || r.statusText);
+      for (const input of Object.values(inputs)) input.value = "";
+      await pollStatus();
+    } catch (err) {
+      save.disabled = false; save.textContent = "Save keys";
+      g.append(el("p", "set-error", String(err.message || err)));
+    }
+  };
+  form.append(save);
+  g.append(form);
+  return g;
+}
+
+function relativeFromSeconds(epochSeconds) {
+  const mins = Math.round((Date.now() / 1000 - epochSeconds) / 60);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60 * 24) return `${Math.round(mins / 60)}h ago`;
+  return `${Math.round(mins / 1440)}d ago`;
+}
+
+// While a refresh runs, keep asking the server how it is going, then reload the
+// briefing once it finishes.
+let pollTimer = null;
+async function pollStatus() {
+  try {
+    const r = await fetch("/api/status", { cache: "no-store" });
+    if (!r.ok) return;
+    const wasRunning = server && server.running;
+    server = await r.json();
+    if (view === "settings") render();
+    if (server.running) {
+      clearTimeout(pollTimer);
+      pollTimer = setTimeout(pollStatus, 2000);
+    } else if (wasRunning) {
+      await loadArticles();      // the run finished: pick up the new briefing
+      render();
+    }
+  } catch {}
 }
 
 function move(key, delta) {
@@ -633,7 +787,7 @@ document.getElementById("closeRead").onclick = () =>
 
 applyTheme();
 
-async function load() {
+async function loadArticles() {
   try {
     const r = await fetch("scored.json", { cache: "no-store" });
     if (!r.ok) throw new Error(r.statusText);
@@ -642,14 +796,38 @@ async function load() {
     if (Array.isArray(window.MIMIR_DATA)) {
       articles = window.MIMIR_DATA;
     } else {
-      document.getElementById("stories").append(
-        el("p", "placeholder", "Could not load scored.json. Run the pipeline first."));
-      return;
+      articles = [];
+      return false;
     }
   }
   articles.sort((a, b) =>
     b.significance - a.significance || (b.coverage_count || 0) - (a.coverage_count || 0));
+  return true;
+}
+
+// app.py answers /api/status; opened as a plain file, nothing does, and the page
+// carries on without the features that need a server.
+async function detectServer() {
+  try {
+    const r = await fetch("/api/status", { cache: "no-store" });
+    if (r.ok) server = await r.json();
+  } catch {}
+}
+
+async function load() {
+  await detectServer();
+  const gotData = await loadArticles();
+  if (!gotData && !server) {
+    document.getElementById("stories").append(
+      el("p", "placeholder", "No briefing yet. Run python3 run_all.py, then reload."));
+    return;
+  }
   render();
+  if (!gotData) {
+    document.getElementById("stories").replaceChildren(
+      el("p", "placeholder", "No briefing yet. Open Settings and choose Refresh now."));
+  }
+  if (server && server.running) pollStatus();
 }
 load();
 </script>
