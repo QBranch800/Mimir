@@ -283,6 +283,43 @@ function el(tag, className, text) {
 }
 function sep() { return el("span", "dot", "·"); }
 
+// Cut at a word boundary and say so, rather than stopping mid-word.
+function trim(textValue, limit) {
+  const t = (textValue || "").trim();
+  if (t.length <= limit) return t;
+  const cut = t.slice(0, limit);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > limit * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[,;:.\s]+$/, "") + "…";
+}
+
+// The standfirst takes whole sentences off the front; whatever is left becomes the body, so
+// the same text is never shown twice or cut off halfway. Both halves are slices of the same
+// string, so no wording can be lost between them.
+function splitSummary(textValue, leadLimit = 300, leadMin = 120) {
+  const t = (textValue || "").trim();
+  if (!t) return { lead: "", rest: [] };
+  if (t.length <= leadLimit) return { lead: t, rest: [] };
+
+  // the last sentence ending that still fits, ignoring ones so early they leave a stub
+  let cut = -1;
+  const ends = /[.!?]["'’”)\]]?(?=\s|$)/g;
+  let m;
+  while ((m = ends.exec(t)) !== null) {
+    const end = m.index + m[0].length;
+    if (end > leadLimit) break;
+    if (end >= leadMin || cut < 0) cut = end;
+  }
+  if (cut < 0) {                       // no sentence break in range: fall back to a word break
+    const space = t.lastIndexOf(" ", leadLimit);
+    cut = space > leadLimit * 0.5 ? space : leadLimit;
+  }
+
+  const lead = t.slice(0, cut).trim();
+  const restText = t.slice(cut).trim();
+  const rest = restText ? restText.split(/\n{2,}/).map(p => p.trim()).filter(Boolean) : [];
+  return { lead, rest };
+}
+
 function renderNav() {
   const nav = document.getElementById("nav");
   nav.replaceChildren();
@@ -340,9 +377,7 @@ function renderStories() {
     const mid = el("div");
     mid.append(el("div", "eyebrow", cat.label));
     mid.append(el("div", "story-title", a.title));
-    if (a.summary) {
-      mid.append(el("p", "story-dek", a.summary.slice(0, 145) + (a.summary.length > 145 ? "…" : "")));
-    }
+    if (a.summary) mid.append(el("p", "story-dek", trim(a.summary, 150)));
     const meta = el("div", "story-meta");
     meta.append(el("span", null, a.source));
     const rel = relativeTime(a.time_published);
@@ -383,7 +418,8 @@ function renderReader() {
   host.append(eyebrow);
 
   host.append(el("h2", "headline", article.title));
-  if (article.summary) host.append(el("p", "standfirst", article.summary.slice(0, 190)));
+  const { lead, rest } = splitSummary(article.summary);
+  if (lead) host.append(el("p", "standfirst", lead));
 
   const meta = el("div", "read-meta");
   meta.append(el("span", null, article.source));
@@ -409,7 +445,7 @@ function renderReader() {
   }
 
   const body = el("div", "body");
-  if (article.summary) body.append(el("p", null, article.summary));
+  for (const paragraph of rest) body.append(el("p", null, paragraph));
   const more = el("a", "readmore", `Read the full article at ${article.source} →`);
   more.href = article.url; more.target = "_blank"; more.rel = "noopener noreferrer";
   body.append(more);
