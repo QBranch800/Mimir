@@ -84,6 +84,7 @@ for item in unique.values():
         "source": item["source"]["name"],
         "time_published": item["publishedAt"].replace("-", "").replace(":", "").rstrip("Z"),
         "summary": item.get("description") or "",
+        "banner_image": item.get("urlToImage") or "",
     })
 
 with open("newsapi_results.json", "w") as f:

@@ -84,6 +84,7 @@ for item in unique.values():
         "source": item["domain"],
         "time_published": item["seendate"].rstrip("Z"),
         "summary": "",
+        "banner_image": item.get("socialimage") or "",
     })
 
 with open("gdelt_results.json", "w") as f:

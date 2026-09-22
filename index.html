@@ -4,132 +4,249 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mimir</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  /* Söhne is a licensed font from Klim Type Foundry. If you buy it, drop the web fonts in a
+     fonts/ folder and add an @font-face rule here; it is first in the stack so it takes over.
+     Inter is the closest freely available neo-grotesque and is used until then. */
   :root {
-    --bg: #ffffff;
-    --surface: #f6f7f9;
-    --border: #e2e5ea;
-    --text: #14171c;
-    --muted: #666f7d;
-    --accent: #1f5fd6;
-    --high: #b3341c;
-    --mid: #9a6512;
-    --low: #5b6470;
+    --font: "Söhne", "Soehne", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+    --bg: #f5f4f1;
+    --panel: #faf9f7;
+    --rule: #e0ded8;
+    --ink: #16150f;
+    --ink-2: #4a4841;
+    --ink-3: #85827a;
+    --accent: #16150f;
+    --hover: #eceae4;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #14171c;
-      --surface: #1c2027;
-      --border: #2c323c;
-      --text: #e8eaed;
-      --muted: #98a1b0;
-      --accent: #7aa7f5;
-      --high: #f08a72;
-      --mid: #e0b055;
-      --low: #98a1b0;
+      --bg: #17171a;
+      --panel: #1d1d20;
+      --rule: #302f33;
+      --ink: #f0efec;
+      --ink-2: #b6b4ae;
+      --ink-3: #85837c;
+      --accent: #f0efec;
+      --hover: #26262a;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #14171c;
-    --surface: #1c2027;
-    --border: #2c323c;
-    --text: #e8eaed;
-    --muted: #98a1b0;
-    --accent: #7aa7f5;
-    --high: #f08a72;
-    --mid: #e0b055;
-    --low: #98a1b0;
+    --bg: #17171a; --panel: #1d1d20; --rule: #302f33;
+    --ink: #f0efec; --ink-2: #b6b4ae; --ink-3: #85837c;
+    --accent: #f0efec; --hover: #26262a;
   }
 
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
-    padding: 0 16px 64px;
     background: var(--bg);
-    color: var(--text);
-    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    font-family: var(--font);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 780px; margin: 0 auto; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  a { color: inherit; }
 
-  header { padding: 40px 0 24px; border-bottom: 1px solid var(--border); }
-  h1 { margin: 0; font-size: 30px; letter-spacing: -0.02em; }
-  .sub { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
-
-  nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 8px; }
-  .tab {
-    padding: 7px 13px; border: 1px solid var(--border); border-radius: 999px;
-    background: transparent; color: var(--muted); font-size: 14px; cursor: pointer;
-    font-family: inherit;
-  }
-  .tab:hover { border-color: var(--accent); color: var(--text); }
-  .tab[aria-selected="true"] {
-    background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500;
+  .eyebrow {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-3);
   }
 
-  .controls {
-    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    padding: 12px 0 4px; color: var(--muted); font-size: 14px;
-  }
-  .controls label { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+  /* ---------- shell ---------- */
+  .app { display: grid; grid-template-columns: 196px minmax(0, 1fr) minmax(0, 1.05fr); min-height: 100vh; }
 
-  article {
-    padding: 20px 0; border-bottom: 1px solid var(--border);
-    display: grid; grid-template-columns: 42px 1fr; gap: 16px;
+  /* ---------- sidebar ---------- */
+  .sidebar { padding: 22px 16px; border-right: 1px solid transparent; }
+  .mark {
+    width: 46px; height: 46px; border-radius: 13px; background: var(--panel);
+    display: grid; place-items: center; margin-bottom: 30px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
   }
-  .score {
-    font-size: 19px; font-weight: 600; text-align: center;
-    padding-top: 1px; font-variant-numeric: tabular-nums;
+  .mark svg { width: 21px; height: 21px; }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav button {
+    text-align: left; padding: 9px 14px; border-radius: 9px;
+    color: var(--ink-2); font-size: 14.5px;
   }
-  .s-high { color: var(--high); }
-  .s-mid  { color: var(--mid); }
-  .s-low  { color: var(--low); }
+  .nav button:hover { background: var(--hover); }
+  .nav button[aria-current="true"] { background: var(--panel); color: var(--ink); font-weight: 500; }
 
-  h2 { margin: 0 0 7px; font-size: 17px; line-height: 1.35; font-weight: 600; }
-  h2 a { color: var(--text); text-decoration: none; }
-  h2 a:hover { color: var(--accent); text-decoration: underline; }
+  /* ---------- list column ---------- */
+  .list-col { padding: 26px 34px 60px 10px; min-width: 0; }
+  .list-head { margin-bottom: 26px; }
+  h1 { font-size: 52px; line-height: 1.02; letter-spacing: -0.035em; margin: 12px 0 8px; font-weight: 700; }
+  .tagline { color: var(--ink-2); font-size: 17px; margin: 0; }
 
-  .reason { margin: 0 0 9px; color: var(--muted); font-size: 14px; }
-  .meta { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 8px; }
-  .meta .dot { opacity: 0.45; }
-  .pill {
-    border: 1px solid var(--border); border-radius: 4px;
-    padding: 1px 6px; font-size: 12px;
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 20px 0 4px; }
+  .tabs button {
+    font-size: 12px; padding: 5px 11px; border-radius: 999px;
+    color: var(--ink-3); border: 1px solid var(--rule);
+  }
+  .tabs button:hover { color: var(--ink); }
+  .tabs button[aria-selected="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+  .story {
+    display: grid; grid-template-columns: 52px minmax(0,1fr) 108px;
+    gap: 14px; align-items: start;
+    padding: 20px 0; border-top: 1px solid var(--rule);
+    width: 100%; text-align: left;
+  }
+  .story:hover .story-title { text-decoration: underline; text-underline-offset: 2px; }
+  .story[aria-current="true"] .rank { color: var(--ink); }
+  .rank {
+    font-size: 26px; font-weight: 500; color: var(--ink-3);
+    letter-spacing: -0.02em; font-variant-numeric: tabular-nums; padding-top: 2px;
+  }
+  .story-title {
+    font-size: 18.5px; line-height: 1.24; letter-spacing: -0.02em;
+    font-weight: 600; margin: 7px 0 6px;
+  }
+  .story-dek { color: var(--ink-2); font-size: 13.5px; line-height: 1.45; margin: 0 0 9px; }
+  .story-meta { color: var(--ink-3); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 7px; }
+  .thumb {
+    width: 108px; height: 104px; border-radius: 3px; object-fit: cover;
+    background: var(--hover); display: block;
+  }
+  .thumb-empty { width: 108px; height: 104px; border-radius: 3px; background: var(--hover); }
+
+  /* ---------- reading pane ---------- */
+  .read-col {
+    background: var(--panel); border-left: 1px solid var(--rule);
+    padding: 22px 40px 70px; min-width: 0;
+  }
+  .topbar { display: flex; align-items: center; gap: 16px; margin-bottom: 40px; }
+  .search {
+    flex: 1; display: flex; align-items: center; gap: 9px;
+    border: 1px solid var(--rule); border-radius: 9px; padding: 9px 13px; background: var(--bg);
+  }
+  .search svg { width: 15px; height: 15px; color: var(--ink-3); flex: none; }
+  .search input {
+    border: 0; outline: 0; background: none; color: var(--ink);
+    font: inherit; font-size: 14px; width: 100%;
+  }
+  .search input::placeholder { color: var(--ink-3); }
+  .avatar {
+    width: 34px; height: 34px; border-radius: 50%; background: var(--hover);
+    display: grid; place-items: center; font-size: 13px; color: var(--ink-2); flex: none;
   }
 
-  .empty, .error {
-    padding: 48px 0; text-align: center; color: var(--muted);
+  .read-eyebrow { display: flex; gap: 14px; margin-bottom: 14px; }
+  h2.headline {
+    font-size: 40px; line-height: 1.08; letter-spacing: -0.035em;
+    font-weight: 700; margin: 0 0 14px; text-wrap: balance;
   }
-  .error code {
-    display: inline-block; margin-top: 10px; padding: 8px 12px;
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 6px; font-size: 13px; color: var(--text);
+  .standfirst { font-size: 18px; line-height: 1.42; color: var(--ink-2); margin: 0 0 18px; }
+  .read-meta {
+    display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+    color: var(--ink-3); font-size: 13px;
+    padding-bottom: 18px;
   }
+  .read-meta .spacer { flex: 1; }
+  .read-meta a.action {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--ink-2); text-decoration: none; font-size: 13px;
+  }
+  .read-meta a.action:hover { color: var(--ink); }
+  .hero { width: 100%; border-radius: 4px; display: block; margin-bottom: 26px; background: var(--hover); }
+
+  .why { border-top: 1px solid var(--rule); padding-top: 18px; margin-bottom: 26px; }
+  .why h3 { font-size: 14px; font-weight: 600; margin: 0 0 14px; }
+  .facets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .facet { border-left: 1px solid var(--rule); padding-left: 14px; }
+  .facet:first-child { border-left: 0; padding-left: 0; }
+  .facet .n { font-size: 19px; color: var(--ink-3); font-weight: 500; display: block; margin-bottom: 5px; }
+  .facet p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ink-2); }
+
+  .body p { font-size: 15.5px; line-height: 1.62; margin: 0 0 16px; color: var(--ink); }
+  .readmore {
+    display: inline-block; margin-top: 6px; font-size: 14px; font-weight: 500;
+    border-bottom: 1px solid var(--ink-3); text-decoration: none; padding-bottom: 1px;
+  }
+  .readmore:hover { border-color: var(--ink); }
+
+  .placeholder { color: var(--ink-3); padding: 60px 0; }
+  .dot { opacity: 0.4; }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 1080px) {
+    .app { grid-template-columns: 160px minmax(0,1fr); }
+    .read-col { display: none; }
+    .read-col.open {
+      display: block; position: fixed; inset: 0; z-index: 10; overflow-y: auto;
+      border-left: 0; padding: 20px 20px 60px;
+    }
+    .close-read { display: inline-flex !important; }
+  }
+  @media (max-width: 720px) {
+    .app { grid-template-columns: 1fr; }
+    .sidebar {
+      display: flex; align-items: center; gap: 14px;
+      padding: 12px 16px; border-bottom: 1px solid var(--rule);
+    }
+    .mark { width: 34px; height: 34px; border-radius: 10px; margin: 0; }
+    .mark svg { width: 16px; height: 16px; }
+    .nav { flex-direction: row; gap: 2px; }
+    .nav button { padding: 6px 11px; font-size: 13.5px; }
+    .list-col { padding: 20px 16px 60px; }
+    h1 { font-size: 38px; }
+    h2.headline { font-size: 29px; }
+    .story { grid-template-columns: 34px minmax(0,1fr) 76px; gap: 10px; }
+    .rank { font-size: 19px; }
+    .story-title { font-size: 16.5px; }
+    .thumb, .thumb-empty { width: 76px; height: 76px; }
+    .facets { grid-template-columns: 1fr; gap: 12px; }
+    .facet { border-left: 0; padding-left: 0; }
+  }
+  .close-read { display: none; margin-bottom: 14px; color: var(--ink-2); font-size: 14px; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>Mimir</h1>
-    <p class="sub" id="sub">Loading…</p>
-  </header>
+<div class="app">
+  <aside class="sidebar">
+    <div class="mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1.8 12S5.5 5 12 5s10.2 7 10.2 7-3.7 7-10.2 7S1.8 12 1.8 12Z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+    </div>
+    <nav class="nav" id="nav"></nav>
+  </aside>
 
-  <nav id="tabs" role="tablist"></nav>
+  <section class="list-col">
+    <div class="list-head">
+      <div class="eyebrow" id="today"></div>
+      <h1 id="viewTitle">Today</h1>
+      <p class="tagline">What's moving markets today?</p>
+      <div class="tabs" id="tabs" role="tablist"></div>
+    </div>
+    <div id="stories"></div>
+  </section>
 
-  <div class="controls">
-    <label>
-      <input type="checkbox" id="showAll">
-      Include low-scoring articles (below 4)
-    </label>
-  </div>
-
-  <main id="list"></main>
+  <section class="read-col" id="readCol">
+    <div class="topbar">
+      <label class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="search" type="search" placeholder="Search news, topics or sources...">
+      </label>
+      <div class="avatar" title="Mimir">M</div>
+    </div>
+    <button class="close-read" id="closeRead">&larr; Back to stories</button>
+    <div id="reader"></div>
+  </section>
 </div>
 
-<!-- Written by score_news.py. Only used when this page is opened directly from the file
-     system, where the browser will not let it fetch scored.json. -->
-<script src="briefing_data.js" onerror="window.MIMIR_DATA_MISSING = true"></script>
+<script src="briefing_data.js" onerror="window.MIMIR_DATA_MISSING=true"></script>
 <script>
-// The four categories score_news.py assigns, plus a catch-all first tab.
 const CATEGORIES = [
   { key: "all",              label: "All" },
   { key: "monetary_policy",  label: "Monetary policy" },
@@ -137,185 +254,259 @@ const CATEGORIES = [
   { key: "us_macro_data",    label: "US macro data" },
   { key: "geopolitics",      label: "Geopolitics" },
 ];
+const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map(c => [c.key, c.label]));
 
-// Articles scored before the category field existed only have a fetch topic,
-// which is a rough stand-in: it says where the article came from, not what it is about.
+// Articles scored before score_news.py tagged categories only carry the fetch topic,
+// which says where an article came from rather than what it is about.
 const TOPIC_FALLBACK = {
   economy_monetary: "monetary_policy",
   economy_fiscal:   "us_fiscal_policy",
   economy_macro:    "us_macro_data",
   geopolitics:      "geopolitics",
 };
-
 const MIN_SCORE = 4;
 
 let articles = [];
-let activeTab = "all";
-let showAll = false;
+let view = "today";       // today | saved | settings
+let tab = "all";
+let query = "";
+let selectedUrl = null;
+let saved = loadSaved();
 
-function categoryOf(article) {
-  return article.category || TOPIC_FALLBACK[article.topic] || "none";
+function loadSaved() {
+  try { return new Set(JSON.parse(localStorage.getItem("mimir:saved") || "[]")); }
+  catch { return new Set(); }
+}
+function persistSaved() {
+  try { localStorage.setItem("mimir:saved", JSON.stringify([...saved])); } catch {}
 }
 
-// time_published looks like "20260921T064134"
-function formatDate(stamp) {
+const categoryOf = a => a.category || TOPIC_FALLBACK[a.topic] || "none";
+
+function parseDate(stamp) {
   const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})/.exec(stamp || "");
-  if (!m) return "";
-  const [, y, mo, d, h, mi] = m;
-  const date = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi));
-  return date.toLocaleString(undefined, {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-  });
+  return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5])) : null;
+}
+function relativeTime(stamp) {
+  const d = parseDate(stamp);
+  if (!d) return "";
+  const mins = Math.round((Date.now() - d.getTime()) / 60000);
+  if (mins < 60) return `${Math.max(mins, 1)}m ago`;
+  if (mins < 60 * 24) return `${Math.round(mins / 60)}h ago`;
+  return `${Math.round(mins / 1440)}d ago`;
+}
+function longDate(stamp) {
+  const d = parseDate(stamp);
+  return d ? d.toLocaleDateString("en-GB",
+    { day: "numeric", month: "long", year: "numeric" }).toUpperCase() : "";
 }
 
-function scoreClass(score) {
-  if (score >= 7) return "s-high";
-  if (score >= MIN_SCORE) return "s-mid";
-  return "s-low";
+function pool() {
+  let list = articles.filter(a => a.significance >= MIN_SCORE);
+  if (view === "saved") list = articles.filter(a => saved.has(a.url));
+  if (tab !== "all") list = list.filter(a => categoryOf(a) === tab);
+  if (query) {
+    const q = query.toLowerCase();
+    list = list.filter(a =>
+      a.title.toLowerCase().includes(q) ||
+      (a.source || "").toLowerCase().includes(q) ||
+      (a.summary || "").toLowerCase().includes(q));
+  }
+  return list;
 }
 
-function visibleArticles() {
-  return articles.filter(a => {
-    if (!showAll && a.significance < MIN_SCORE) return false;
-    if (activeTab !== "all" && categoryOf(a) !== activeTab) return false;
-    return true;
-  });
+function el(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text !== undefined) n.textContent = text;
+  return n;
 }
+function sep() { return el("span", "dot", "·"); }
 
-function countFor(key) {
-  return articles.filter(a => {
-    if (!showAll && a.significance < MIN_SCORE) return false;
-    return key === "all" || categoryOf(a) === key;
-  }).length;
+function renderNav() {
+  const nav = document.getElementById("nav");
+  nav.replaceChildren();
+  for (const [key, label] of [["today","Today"],["saved","Saved"],["settings","Settings"]]) {
+    const b = el("button", null, key === "saved" && saved.size ? `${label} (${saved.size})` : label);
+    b.setAttribute("aria-current", String(view === key));
+    b.onclick = () => { view = key; tab = "all"; render(); };
+    nav.append(b);
+  }
 }
 
 function renderTabs() {
-  const nav = document.getElementById("tabs");
-  nav.replaceChildren();
-  for (const cat of CATEGORIES) {
-    const btn = document.createElement("button");
-    btn.className = "tab";
-    btn.type = "button";
-    btn.setAttribute("role", "tab");
-    btn.setAttribute("aria-selected", String(cat.key === activeTab));
-    btn.textContent = `${cat.label} (${countFor(cat.key)})`;
-    btn.addEventListener("click", () => {
-      activeTab = cat.key;
-      render();
-    });
-    nav.append(btn);
+  const tabs = document.getElementById("tabs");
+  tabs.replaceChildren();
+  if (view === "settings") return;
+  const base = view === "saved"
+    ? articles.filter(a => saved.has(a.url))
+    : articles.filter(a => a.significance >= MIN_SCORE);
+  for (const c of CATEGORIES) {
+    const n = c.key === "all" ? base.length : base.filter(a => categoryOf(a) === c.key).length;
+    if (!n && c.key !== "all") continue;
+    const b = el("button", null, `${c.label} ${n}`);
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(tab === c.key));
+    b.onclick = () => { tab = c.key; render(); };
+    tabs.append(b);
   }
 }
 
-function renderList() {
-  const list = document.getElementById("list");
-  const items = visibleArticles();
-  list.replaceChildren();
+function renderStories() {
+  const host = document.getElementById("stories");
+  host.replaceChildren();
 
-  if (!items.length) {
-    const p = document.createElement("p");
-    p.className = "empty";
-    p.textContent = "Nothing in this category.";
-    list.append(p);
+  if (view === "settings") {
+    const box = el("div", "placeholder");
+    box.append(
+      el("p", null, "Mimir reads the file written by score_news.py. API keys live in the .env file next to the scripts, not in this page."),
+      el("p", null, `Showing stories scoring ${MIN_SCORE} or above out of ${articles.length} scored.`),
+    );
+    host.append(box);
     return;
   }
 
-  for (const a of items) {
-    const el = document.createElement("article");
-
-    const score = document.createElement("div");
-    score.className = `score ${scoreClass(a.significance)}`;
-    score.textContent = a.significance;
-
-    const body = document.createElement("div");
-
-    const h2 = document.createElement("h2");
-    const link = document.createElement("a");
-    link.href = a.url;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.textContent = a.title;
-    h2.append(link);
-
-    const reason = document.createElement("p");
-    reason.className = "reason";
-    reason.textContent = a.significance_reason || "";
-
-    const meta = document.createElement("div");
-    meta.className = "meta";
-
-    const source = document.createElement("span");
-    source.textContent = a.source;
-    meta.append(source);
-
-    const when = formatDate(a.time_published);
-    if (when) {
-      meta.append(sep(), text(when));
-    }
-    if (a.coverage_count > 1) {
-      const outlets = [a.source, ...(a.also_covered_by || [])].join(", ");
-      const pill = document.createElement("span");
-      pill.className = "pill";
-      pill.textContent = `${a.coverage_count} outlets`;
-      pill.title = outlets;
-      meta.append(sep(), pill);
-    }
-
-    body.append(h2, reason, meta);
-    el.append(score, body);
-    list.append(el);
+  const list = pool();
+  if (!list.length) {
+    host.append(el("p", "placeholder",
+      view === "saved" ? "Nothing saved yet. Open a story and choose Save."
+                       : "No stories match."));
+    return;
   }
+
+  list.forEach((a, i) => {
+    const row = el("button", "story");
+    row.setAttribute("aria-current", String(a.url === selectedUrl));
+    row.onclick = () => { selectedUrl = a.url; render(); document.getElementById("readCol").classList.add("open"); };
+
+    row.append(el("div", "rank", String(i + 1).padStart(2, "0")));
+
+    const mid = el("div");
+    mid.append(el("div", "eyebrow", CATEGORY_LABEL[categoryOf(a)] || "Other"));
+    mid.append(el("div", "story-title", a.title));
+    if (a.summary) {
+      mid.append(el("p", "story-dek", a.summary.slice(0, 145) + (a.summary.length > 145 ? "…" : "")));
+    }
+    const meta = el("div", "story-meta");
+    meta.append(el("span", null, a.source));
+    meta.append(sep(), el("span", null, `significance ${a.significance}`));
+    const rel = relativeTime(a.time_published);
+    if (rel) meta.append(sep(), el("span", null, rel));
+    mid.append(meta);
+    row.append(mid);
+
+    if (a.banner_image) {
+      const img = el("img", "thumb");
+      img.src = a.banner_image;
+      img.alt = "";
+      img.loading = "lazy";
+      img.onerror = () => img.replaceWith(el("div", "thumb-empty"));
+      row.append(img);
+    } else {
+      row.append(el("div", "thumb-empty"));
+    }
+    host.append(row);
+  });
 }
 
-function sep() {
-  const s = document.createElement("span");
-  s.className = "dot";
-  s.textContent = "·";
-  return s;
-}
+function renderReader() {
+  const host = document.getElementById("reader");
+  host.replaceChildren();
 
-function text(value) {
-  const s = document.createElement("span");
-  s.textContent = value;
-  return s;
+  const list = pool();
+  const article = articles.find(a => a.url === selectedUrl) || list[0];
+  if (!article) {
+    host.append(el("p", "placeholder", "Select a story to read."));
+    return;
+  }
+
+  const eyebrow = el("div", "read-eyebrow");
+  eyebrow.append(
+    el("span", "eyebrow", CATEGORY_LABEL[categoryOf(article)] || "Other"),
+    el("span", "eyebrow", longDate(article.time_published)),
+  );
+  host.append(eyebrow);
+
+  host.append(el("h2", "headline", article.title));
+  if (article.summary) host.append(el("p", "standfirst", article.summary.slice(0, 190)));
+
+  const meta = el("div", "read-meta");
+  meta.append(el("span", null, article.source));
+  const rel = relativeTime(article.time_published);
+  if (rel) meta.append(sep(), el("span", null, rel));
+  meta.append(el("span", "spacer"));
+
+  const saveBtn = el("button", "action", saved.has(article.url) ? "Saved" : "Save");
+  saveBtn.onclick = () => {
+    saved.has(article.url) ? saved.delete(article.url) : saved.add(article.url);
+    persistSaved(); render();
+  };
+  const open = el("a", "action", "Open original");
+  open.href = article.url; open.target = "_blank"; open.rel = "noopener noreferrer";
+  meta.append(saveBtn, open);
+  host.append(meta);
+
+  if (article.banner_image) {
+    const hero = el("img", "hero");
+    hero.src = article.banner_image; hero.alt = "";
+    hero.onerror = () => hero.remove();
+    host.append(hero);
+  }
+
+  // Facts Mimir actually knows, in place of the "key takeaways" a publisher would write.
+  const why = el("div", "why");
+  why.append(el("h3", null, "Why this is in the briefing"));
+  const facets = el("div", "facets");
+  const outlets = article.coverage_count > 1
+    ? `Covered by ${article.coverage_count} outlets: ${[article.source, ...(article.also_covered_by || [])].join(", ")}.`
+    : "Reported by this outlet alone so far.";
+  const items = [
+    ["01", article.significance_reason || "No reason recorded."],
+    ["02", `Scored ${article.significance} out of 10 for significance.`],
+    ["03", outlets],
+  ];
+  for (const [n, body] of items) {
+    const f = el("div", "facet");
+    f.append(el("span", "n", n), el("p", null, body));
+    facets.append(f);
+  }
+  why.append(facets);
+  host.append(why);
+
+  const body = el("div", "body");
+  if (article.summary) body.append(el("p", null, article.summary));
+  const more = el("a", "readmore", `Read the full article at ${article.source} →`);
+  more.href = article.url; more.target = "_blank"; more.rel = "noopener noreferrer";
+  body.append(more);
+  host.append(body);
 }
 
 function render() {
-  renderTabs();
-  renderList();
-  const shown = visibleArticles().length;
-  document.getElementById("sub").textContent =
-    `${shown} ${shown === 1 ? "story" : "stories"} · scored by significance, highest first`;
+  document.getElementById("today").textContent =
+    new Date().toLocaleDateString("en-GB",
+      { weekday: "long", day: "numeric", month: "long", year: "numeric" }).toUpperCase();
+  document.getElementById("viewTitle").textContent =
+    view === "saved" ? "Saved" : view === "settings" ? "Settings" : "Today";
+  renderNav(); renderTabs(); renderStories(); renderReader();
 }
 
-function showError() {
-  document.getElementById("sub").textContent = "Could not load scored.json";
-  const list = document.getElementById("list");
-  list.replaceChildren();
-  const p = document.createElement("p");
-  p.className = "error";
-  p.append(
-    text("Run the pipeline first, then serve this folder so the browser can read the file:"),
-    document.createElement("br"),
-  );
-  const code = document.createElement("code");
-  code.textContent = "python3 -m http.server 8000";
-  p.append(code);
-  list.append(p);
-}
+document.getElementById("search").addEventListener("input", e => {
+  query = e.target.value.trim(); selectedUrl = null; render();
+});
+document.getElementById("closeRead").onclick = () =>
+  document.getElementById("readCol").classList.remove("open");
 
 async function load() {
-  // Works when the folder is served over http. Opening index.html directly with
-  // file:// blocks fetch, so fall back to briefing_data.js if score_news.py wrote one.
   try {
-    const response = await fetch("scored.json", { cache: "no-store" });
-    if (!response.ok) throw new Error(response.statusText);
-    articles = await response.json();
-  } catch (err) {
+    const r = await fetch("scored.json", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.statusText);
+    articles = await r.json();
+  } catch {
     if (Array.isArray(window.MIMIR_DATA)) {
       articles = window.MIMIR_DATA;
     } else {
-      showError();
+      document.getElementById("stories").append(
+        el("p", "placeholder", "Could not load scored.json. Run the pipeline first."));
       return;
     }
   }
@@ -323,12 +514,6 @@ async function load() {
     b.significance - a.significance || (b.coverage_count || 0) - (a.coverage_count || 0));
   render();
 }
-
-document.getElementById("showAll").addEventListener("change", (e) => {
-  showAll = e.target.checked;
-  render();
-});
-
 load();
 </script>
 </body>
