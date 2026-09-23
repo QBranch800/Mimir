@@ -12,3 +12,4 @@ schedule.json
 dist/
 build/
 *.spec
+run.log

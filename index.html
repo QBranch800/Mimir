@@ -9,7 +9,7 @@
   // runs before the stylesheet paints, so a chosen theme does not flash the other one
   try {
     var t = (JSON.parse(localStorage.getItem("mimir:settings") || "{}") || {}).theme;
-    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
   } catch (e) {}
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -306,7 +306,7 @@ const TOPIC_FALLBACK = {
   technology:       "tech_and_ai",
 };
 const DEFAULTS = {
-  theme: "system",                                       // system | light | dark
+  theme: "light",                                        // light | dark
   minScore: 4,                                           // significance a story must reach
   categories: ALL_CATEGORIES.map(c => c.key),            // which categories, in which order
 };
@@ -334,7 +334,7 @@ function loadSettings() {
   const known = new Set(ALL_CATEGORIES.map(c => c.key));
   s.categories = Array.isArray(s.categories) ? s.categories.filter(k => known.has(k)) : [...DEFAULTS.categories];
   s.minScore = Number.isFinite(+s.minScore) ? Math.min(10, Math.max(1, +s.minScore)) : DEFAULTS.minScore;
-  if (!["system", "light", "dark"].includes(s.theme)) s.theme = DEFAULTS.theme;
+  if (!["light", "dark"].includes(s.theme)) s.theme = DEFAULTS.theme;
   return s;
 }
 function saveSettings() {
@@ -342,9 +342,7 @@ function saveSettings() {
 }
 
 function applyTheme() {
-  const root = document.documentElement;
-  if (settings.theme === "system") root.removeAttribute("data-theme");
-  else root.setAttribute("data-theme", settings.theme);
+  document.documentElement.setAttribute("data-theme", settings.theme);
 }
 
 // the categories to show, in the saved order
@@ -423,7 +421,7 @@ function renderSettings(host) {
   // Appearance
   const appearance = settingsGroup("Appearance");
   const themes = el("div", "seg");
-  for (const [value, label] of [["system", "System"], ["light", "Light"], ["dark", "Dark"]]) {
+  for (const [value, label] of [["light", "Light"], ["dark", "Dark"]]) {
     const b = el("button", null, label);
     b.setAttribute("aria-pressed", String(settings.theme === value));
     b.onclick = () => { settings.theme = value; saveSettings(); applyTheme(); render(); };

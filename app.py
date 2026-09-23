@@ -112,6 +112,14 @@ def pipeline_worker():
                 step_command(script),
                 cwd=paths.DATA_DIR, capture_output=True, text=True, timeout=1800,
             )
+            # keep the whole thing, so a failed run can be looked at afterwards
+            with open(paths.data("run.log"), "a") as log:
+                log.write(f"\n===== {label} ({time.strftime('%Y-%m-%d %H:%M:%S')}) "
+                          f"rc={result.returncode}\n")
+                log.write(result.stdout or "")
+                if result.stderr:
+                    log.write("--- stderr ---\n" + result.stderr)
+
             tail = (result.stdout or "").strip().splitlines()[-1:] or [""]
             run_state["log"].append({
                 "step": label,
@@ -335,7 +343,10 @@ if __name__ == "__main__":
     print("Press Ctrl+C to stop.")
     threading.Thread(target=scheduler_loop, daemon=True).start()
     try:
-        app.run(host="127.0.0.1", port=port, debug=False)
+        # load_dotenv=False: Flask otherwise searches the working directory for a .env
+        # and loads it into the environment, which would quietly override the keys the
+        # person saved in their data directory
+        app.run(host="127.0.0.1", port=port, debug=False, load_dotenv=False)
     except OSError as exc:
         print(f"\nCould not start on port {port}: {exc}")
         print(f"Something else is using it. Try: PORT=5112 {os.path.basename(PYTHON)} app.py")

@@ -37,8 +37,9 @@ def main():
     cfg, _ = scheduler.load_schedule()
 
     threading.Thread(
-        target=lambda: server.app.run(host="127.0.0.1", port=port,
-                                      debug=False, use_reloader=False),
+        # load_dotenv=False: see the note in app.py
+        target=lambda: server.app.run(host="127.0.0.1", port=port, debug=False,
+                                      use_reloader=False, load_dotenv=False),
         daemon=True,
     ).start()
     threading.Thread(target=server.scheduler_loop, daemon=True).start()

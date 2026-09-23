@@ -13,6 +13,22 @@ import paths
 # override, so the key saved in the data directory always wins over one that
 # happens to be in the environment already
 load_dotenv(paths.data(".env"), override=True)
+
+# Refuse to call the API without a key rather than sending a request that is bound to
+# be rejected. This makes a first run say plainly what is missing, and makes it obvious
+# if a key is somehow coming from somewhere other than the file the person edited.
+_key = os.getenv("GEMINI_API_KEY")
+if not _key:
+    raise SystemExit(
+        "No Gemini key. Add GEMINI_API_KEY in Settings, or to "
+        + paths.data(".env") + " (free key at aistudio.google.com)."
+    )
+_env_file = paths.data(".env")
+_from_file = os.path.exists(_env_file) and any(
+    line.strip().startswith("GEMINI_API_KEY=") for line in open(_env_file))
+print(f"Using Gemini key from "
+      f"{_env_file if _from_file else 'the environment, not from a file'} "
+      f"(ends ...{_key[-4:]})")
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 MODEL = "gemini-3.6-flash"
