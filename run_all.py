@@ -1,7 +1,7 @@
 """Run the whole Mimir pipeline in order.
 
-The three fetch steps are optional: if one source is rate limited or its key is
-missing, the run carries on with whatever the others returned. Filtering and
+The fetch steps are optional: if one source is rate limited or its key is missing,
+the run carries on with whatever the other returned. Filtering and
 scoring are required, because without them there is no briefing to show.
 """
 
@@ -16,7 +16,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # (script, label, required)
 STEPS = [
     ("fetch_news.py",    "Alpha Vantage headlines",   False),
-    ("fetch_gdelt.py",   "GDELT geopolitics",         False),
     ("fetch_newsapi.py", "NewsAPI geopolitics",       False),
     ("filter_news.py",   "Filtering and deduping",    True),
     ("score_news.py",    "Scoring with Gemini",       True),

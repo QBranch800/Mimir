@@ -87,7 +87,6 @@ def write_env(updates):
 def pipeline_worker():
     steps = [
         ("fetch_news.py", "Alpha Vantage headlines"),
-        ("fetch_gdelt.py", "GDELT geopolitics"),
         ("fetch_newsapi.py", "NewsAPI geopolitics"),
         ("filter_news.py", "Filtering and deduping"),
         ("score_news.py", "Scoring with Gemini"),

@@ -1,10 +1,10 @@
 # Mimir
 
-A daily briefing app that surfaces significant market-moving news across macroeconomics, US monetary policy, US fiscal policy, geopolitics, and a user-selected industry filtering out routine single-stock noise to focus on genuinely significant events.
+A daily briefing app that surfaces genuinely market-moving news across five fixed categories: monetary policy, US fiscal policy, US macroeconomic data, geopolitics, and tech and AI. It filters out the routine single-stock noise that fills most financial feeds.
 
 ## Status
 
-Early development, but usable end to end. It fetches headlines from Alpha Vantage and NewsAPI, removes duplicates and known noise, scores what is left for significance with Gemini across five categories, and shows the leading story in each as a briefing you read in the browser. A local server adds a refresh button and somewhere to keep your API keys. Industry selection is not built yet.
+Early development, but usable end to end. It fetches headlines from Alpha Vantage and NewsAPI, removes duplicates and known noise, scores what is left for significance with Gemini across the five categories, and shows the leading story in each as a briefing you read in the browser. A local server adds a refresh button, somewhere to keep your API keys, and a daily schedule.
 
 ## Setup
 
@@ -25,21 +25,19 @@ With the virtual environment activated, run everything with one command:
 python3 run_all.py
 ```
 
-That runs the five steps below in order. If a news source is rate limited or missing a key the
+That runs the four steps below in order. If a news source is rate limited or missing a key the
 run carries on with the others, but it stops if filtering or scoring fails, since there would
 be no briefing to show. The individual steps can still be run on their own:
 
 1. `fetch_news.py` fetches headlines from Alpha Vantage into `results.json`. The free tier
    allows about 25 requests a day, so avoid re-running it needlessly.
-2. `fetch_gdelt.py` fetches geopolitics headlines from GDELT (no API key needed) into
-   `gdelt_results.json`. GDELT rate limits aggressively and the script backs off and retries.
-3. `fetch_newsapi.py` fetches geopolitics headlines from NewsAPI for the last two days into
+2. `fetch_newsapi.py` fetches geopolitics headlines from NewsAPI for the last two days into
    `newsapi_results.json`. The free tier allows 100 requests a day; a run uses four.
-4. `filter_news.py` merges all three sources into `filtered.json`. It drops blocked sources,
+3. `filter_news.py` merges both sources into `filtered.json`. It drops blocked sources,
    noisy titles and recurring market roundups, keeps geopolitics articles only from an
    allowlist of trusted outlets, and merges near-duplicate titles while counting how many
    outlets covered each story.
-5. `score_news.py` asks Gemini to rate each article from 1 to 10 against five categories:
+4. `score_news.py` asks Gemini to rate each article from 1 to 10 against five categories:
    monetary policy, US fiscal policy, US macroeconomic data, geopolitics, and tech and AI. It
    tags each article with the category it belongs to, fetches the page text for the top
    articles that have no summary and scores those again, then writes `scored.json`.
@@ -92,10 +90,10 @@ which categories appear and in what order, and a way to clear saved stories.
 - [x] Fetch headlines from Alpha Vantage across multiple topics
 - [x] Filter out duplicates and known noise (source blocklist and title patterns)
 - [x] AI-assisted significance scoring (Gemini API)
-- [x] Add geopolitical coverage from GDELT and NewsAPI
+- [x] Add geopolitical coverage from NewsAPI
 - [x] Read the briefing as a page, one leading story per category
 - [x] Settings: theme, significance threshold, category choice and order
 - [x] Run the whole pipeline with one command
 - [x] Refresh the briefing and save API keys from the page, via a local server
-- [ ] Add an industry dropdown
+- [x] Refresh on a schedule, the same way on every OS and in a hosted deployment
 - [ ] Wrap as a desktop app with Electron

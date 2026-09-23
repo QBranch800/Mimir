@@ -29,7 +29,7 @@ ROUNDUP_TITLE_PATTERNS = [
     re.compile(r"\b(opening|closing) bell\b", re.I),
 ]
 
-# GDELT indexes thousands of outlets, so only geopolitics articles from these are kept
+# Geopolitics articles are kept only from these outlets
 ALLOWED_GEOPOLITICS_DOMAINS = {
     "reuters.com", "apnews.com", "bbc.com", "bbc.co.uk", "ft.com", "aljazeera.com",
     "cnbc.com", "bloomberg.com", "wsj.com", "nytimes.com", "washingtonpost.com",
@@ -43,7 +43,7 @@ SIMILARITY_THRESHOLD = 0.8
 with open("results.json") as f:
     results = json.load(f)
 
-for extra_file in ("gdelt_results.json", "newsapi_results.json"):
+for extra_file in ("newsapi_results.json",):
     if os.path.exists(extra_file):
         with open(extra_file) as f:
             extra = json.load(f)

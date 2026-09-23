@@ -48,6 +48,20 @@ An article that does not fall into any of these five categories is noise for thi
 whatever else it is about, and should score 1-2 even if it involves a well-known company or a
 large dollar figure.
 
+Judge an article by its subject, not by what it mentions in passing. Policy, data or conflict
+named as background does not make a company story one of the five categories. Ask what the
+article is actually reporting: if the answer is one company's share price, valuation, earnings,
+analyst ratings, contracts or prospects, the category is "none" and the score is 1-2, however
+weighty the backdrop it cites. For example:
+- "These two agribusinesses soar if the US-China summit yields concessions" is a stock call
+  using a summit as its premise. It is "none", not geopolitics.
+- "Company X could be 26% undervalued after supply deal jitters" is a valuation piece. It is
+  "none", not geopolitics, even if the jitters come from a government's trade decision.
+- "A new US mine nears startup with EXIM Bank financing" is one project being built. It is
+  "none", not US fiscal policy, which means budget, taxation or spending decisions themselves.
+The same story told the other way round does belong: "US and China agree agricultural
+concessions at summit" is geopolitics, because the agreement is the subject.
+
 Score each article's significance from 1 to 10:
 - 9-10: a major event in one of the five categories that could move whole markets or the
   economy (a rate decision, a surprise CPI print, a war or major sanctions package, a
@@ -68,8 +82,10 @@ Each article line shows: id | source | how many outlets covered the story | titl
   the same story_id, and unrelated articles must have different story_ids.
 - Give each article the category it belongs to, as one of exactly these strings:
   "monetary_policy", "us_fiscal_policy", "us_macro_data", "geopolitics", "tech_and_ai", or
-  "none" if it does not belong to any of the five. Judge this by what the article is actually about, not by the
-  publication or section it came from.
+  "none" if it does not belong to any of the five. Judge this by what the article is reporting,
+  not by the publication or section it came from, and not by context it merely mentions.
+- The category and the score have to agree. A category other than "none" means the article is
+  genuinely about that subject, so it should score at least 3. "none" always scores 1-2.
 
 Give a one-sentence reason for each score. Return one entry per article, using the id given."""
 
