@@ -126,11 +126,20 @@ def should_run(cfg, state, now):
 
 
 def is_stale(data_mtime, cfg, now):
-    """True when the briefing on disk is old enough to refresh on startup."""
+    """True when the briefing on disk is old enough to refresh on startup.
+
+    This is a daily briefing, so what matters is whether it was built today rather
+    than how many hours old it is: one built at 20:00 yesterday is still yesterday's
+    news when you open the app at 09:00. The hours rule stays as a backstop for a very
+    long session that crosses no startup.
+    """
     if not cfg["enabled"]:
         return False
     if not data_mtime:
         return True                    # nothing has ever been built
+    built = datetime.datetime.fromtimestamp(data_mtime, now.tzinfo)
+    if built.date() < now.date():
+        return True
     age_hours = (now.timestamp() - data_mtime) / 3600
     return age_hours >= cfg["stale_hours"]
 

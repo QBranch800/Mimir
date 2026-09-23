@@ -72,9 +72,10 @@ that need `app.py`.
 ### Keeping it up to date by itself
 
 Mimir schedules its own refresh rather than relying on cron, launchd or Task Scheduler, so it
-behaves the same on macOS, Windows, Linux and a hosted deployment. While `app.py` is running
-it refreshes once a day at a time you choose in Settings, and when it starts up it refreshes
-straight away if the briefing is already out of date. If Gemini refuses a request it tries
+behaves the same on macOS, Windows, Linux and a hosted deployment. It refreshes on two triggers: when it
+starts up, if the briefing was not built today, and once a day at a time you choose in
+Settings while it keeps running. The first covers opening the app fresh each morning, the
+second covers a hosted deployment or an app left open, where startup happened long ago. If Gemini refuses a request it tries
 again a few times over the morning, which costs little because scoring is incremental.
 
 The default slot is shortly after Gemini's free daily allowance resets, worked out in your own
