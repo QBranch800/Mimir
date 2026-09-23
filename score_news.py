@@ -12,13 +12,17 @@ load_dotenv()
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 MODEL = "gemini-3.6-flash"
-BATCH_SIZE = 150
+# Not one big batch. A 134 article request was refused with 503 "high demand" over and
+# over while a 5 article one to the same model went through seconds later, so large
+# requests get shed when the service is busy, whatever the token limits allow. Batches
+# of this size have been served reliably. The cost is that Gemini can only merge
+# duplicate stories within a batch, so the same story in two batches stays twice.
+BATCH_SIZE = 50
 MAX_ATTEMPTS = 3
-RETRY_CODES = {429, 503}
+RETRY_CODES = {429}          # 503 is handled separately: it is not worth retrying
 # Every call counts against the free tier's 20 a day, including ones the server fails.
-# A clean run costs two, so this leaves room for a few retries without letting a bad
-# day at Google spend the whole allowance.
-REQUEST_BUDGET = 6
+# A clean run costs four: three batches for ~135 articles, plus the second pass.
+REQUEST_BUDGET = 8
 MIN_SCORE = 4
 TEXT_CANDIDATES = 20
 TITLE_STAGE_CHARS = 300
@@ -124,8 +128,15 @@ def score_batch(batch, chars):
                 print("Out of Gemini requests for today. The free tier allows 20 a day and "
                       "resets at midnight Pacific.")
                 return None
-            retryable = getattr(e, "code", None) in RETRY_CODES
-            if not retryable or attempt == MAX_ATTEMPTS - 1:
+            code = getattr(e, "code", None)
+            # A 503 means Gemini is shedding load, which tends to last minutes rather
+            # than seconds. Retrying spends the day's allowance on a wall, so give this
+            # batch up: its articles stay unscored and the next run will pick them up.
+            if code == 503:
+                print(f"Gemini is refusing requests right now (503). Leaving these "
+                      f"{len(batch)} articles for a later run.")
+                return None
+            if code not in RETRY_CODES or attempt == MAX_ATTEMPTS - 1:
                 print(f"Batch failed: {e}")
                 return None
             wait = 10 * 2 ** attempt
@@ -147,14 +158,38 @@ def fetch_text(url):
 with open("filtered.json") as f:
     articles = json.load(f)
 
-# Stage 1: score everything from title (and summary where there is one)
-scored = []
-for start in range(0, len(articles), BATCH_SIZE):
-    batch = articles[start:start + BATCH_SIZE]
-    print(f"Scoring articles {start + 1}-{start + len(batch)} of {len(articles)}...")
+# Scores already earned are kept, so a run that is cut short by a rate limit or an
+# outage is not wasted: running again picks up only what is still missing.
+previous = {}
+if os.path.exists("scored.json"):
+    try:
+        with open("scored.json") as f:
+            previous = {a["url"]: a for a in json.load(f) if "significance" in a}
+    except (ValueError, KeyError, TypeError):
+        print("scored.json could not be read, so everything will be scored afresh.")
+
+current_urls = {a["url"] for a in articles}
+scored = [a for url, a in previous.items() if url in current_urls]
+todo = [a for a in articles if a["url"] not in previous]
+
+if scored:
+    print(f"{len(scored)} articles already have a score and are kept as they are.")
+    dropped = len(previous) - len(scored)
+    if dropped:
+        print(f"{dropped} scored articles are no longer in filtered.json and are discarded.")
+if not todo:
+    print("Nothing new to score.")
+
+# Stage 1: score from title (and summary where there is one)
+for start in range(0, len(todo), BATCH_SIZE):
+    batch = todo[start:start + BATCH_SIZE]
+    print(f"Scoring articles {start + 1}-{start + len(batch)} of {len(todo)} still to do...")
 
     scores = score_batch(batch, TITLE_STAGE_CHARS)
     if scores is None:
+        if out_of_quota or requests_made >= REQUEST_BUDGET:
+            print("Stopping here. Run this again later to score the rest.")
+            break
         continue
 
     # articles about the same story share a story_id: keep only the best-scoring one
@@ -175,16 +210,18 @@ for start in range(0, len(articles), BATCH_SIZE):
         best["also_covered_by"] = sorted(set(best["also_covered_by"]))
         scored.append(best)
 
-    if start + BATCH_SIZE < len(articles):
+    if start + BATCH_SIZE < len(todo):
         time.sleep(13)
 
 if not scored:
     raise SystemExit("Nothing was scored, so scored.json was left untouched.")
 
 # The second pass is an improvement, not a requirement, so skip it rather than spend
-# requests we may not have. What was scored above is still saved either way.
+# requests we may not have. What was scored above is still saved either way. Only
+# articles scored in this run are candidates; earlier ones have already had their turn.
+fresh = {a["url"] for a in scored if a["url"] not in previous}
 no_summary = [] if (out_of_quota or requests_made >= REQUEST_BUDGET) else \
-    [a for a in scored if not a["summary"]]
+    [a for a in scored if not a["summary"] and a["url"] in fresh]
 if out_of_quota:
     print("Skipping the second scoring pass, since there are no requests left today.")
 candidates = sorted(no_summary, key=lambda a: a["significance"], reverse=True)[:TEXT_CANDIDATES]
