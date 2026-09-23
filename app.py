@@ -291,8 +291,8 @@ if __name__ == "__main__":
     cfg, _ = scheduler.load_schedule()
     print(f"Mimir is running at http://127.0.0.1:{port}")
     if cfg["enabled"]:
-        print(f"It will refresh itself daily at {cfg['time']}, and on startup if the "
-              f"briefing is more than {cfg['stale_hours']} hours old.")
+        print(f"It refreshes on startup if the briefing is not from today, and again "
+              f"daily at {cfg['time']} while it keeps running.")
     else:
         print("Automatic refresh is off. Turn it on in Settings.")
     print("Press Ctrl+C to stop.")
