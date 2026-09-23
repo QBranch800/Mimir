@@ -9,3 +9,6 @@ scored.json
 NEXT_STEPS.md
 briefing_data.js
 schedule.json
+dist/
+build/
+*.spec

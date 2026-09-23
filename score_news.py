@@ -8,7 +8,11 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel
 
-load_dotenv()
+import paths
+
+# override, so the key saved in the data directory always wins over one that
+# happens to be in the environment already
+load_dotenv(paths.data(".env"), override=True)
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 MODEL = "gemini-3.6-flash"
@@ -171,15 +175,15 @@ def fetch_text(url):
     return (text or "")[:TEXT_STAGE_CHARS]
 
 
-with open("filtered.json") as f:
+with open(paths.data("filtered.json")) as f:
     articles = json.load(f)
 
 # Scores already earned are kept, so a run that is cut short by a rate limit or an
 # outage is not wasted: running again picks up only what is still missing.
 previous = {}
-if os.path.exists("scored.json"):
+if os.path.exists(paths.data("scored.json")):
     try:
-        with open("scored.json") as f:
+        with open(paths.data("scored.json")) as f:
             previous = {a["url"]: a for a in json.load(f) if "significance" in a}
     except (ValueError, KeyError, TypeError):
         print("scored.json could not be read, so everything will be scored afresh.")
@@ -268,12 +272,12 @@ if rescore:
 scored.sort(key=lambda a: (a["significance"], a["coverage_count"]), reverse=True)
 briefing = [a for a in scored if a["significance"] >= MIN_SCORE]
 
-with open("scored.json", "w") as f:
+with open(paths.data("scored.json"), "w") as f:
     json.dump(scored, f, indent=2)
 
 # Same data as a script file, so index.html also works when opened directly from the
 # file system, where the browser refuses to fetch scored.json.
-with open("briefing_data.js", "w") as f:
+with open(paths.data("briefing_data.js"), "w") as f:
     f.write("window.MIMIR_DATA = ")
     json.dump(scored, f)
     f.write(";\n")

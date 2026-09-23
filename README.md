@@ -85,6 +85,18 @@ Either way, the briefing shows the single most significant story in each categor
 reading pane beside it. Settings has a theme switch, a significance threshold, control over
 which categories appear and in what order, and a way to clear saved stories.
 
+## As a desktop app
+
+`python3 build_desktop.py` packages Mimir into a double-clickable app: `Mimir.app` on macOS,
+`Mimir.exe` on Windows, a binary on Linux. It wraps the same server in a native window, so the
+desktop app, the web version and the scripts all run the same code. PyInstaller does not cross
+compile, so build on the OS you are targeting.
+
+Installed that way, your keys and briefing live in the folder each OS keeps application data
+in, not inside the app, so updating or reinstalling never wipes them. Set `MIMIR_DATA_DIR` to
+put them somewhere else. On first run the app asks for your API keys rather than showing an
+empty briefing.
+
 ## Roadmap
 
 - [x] Fetch headlines from Alpha Vantage across multiple topics
@@ -96,4 +108,5 @@ which categories appear and in what order, and a way to clear saved stories.
 - [x] Run the whole pipeline with one command
 - [x] Refresh the briefing and save API keys from the page, via a local server
 - [x] Refresh on a schedule, the same way on every OS and in a hosted deployment
-- [ ] Wrap as a desktop app with Electron
+- [x] Package as a desktop app for macOS, Windows and Linux
+- [ ] Sign and notarise the macOS build so it opens without a security warning

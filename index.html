@@ -873,19 +873,66 @@ async function detectServer() {
   } catch {}
 }
 
+// Nothing to read yet. Say what is actually missing rather than "no briefing",
+// because on a first run the answer is usually "you have not added your keys".
+function renderWelcome() {
+  const host = document.getElementById("stories");
+  host.replaceChildren();
+
+  if (!server) {
+    host.append(el("p", "placeholder",
+      "No briefing yet. Run python3 run_all.py in the project folder, then reload."));
+    return;
+  }
+
+  const missing = Object.entries(server.keyLabels || {})
+    .filter(([name]) => !server.keys[name])
+    .map(([, label]) => label);
+
+  const box = el("div", "welcome");
+  if (missing.length) {
+    box.append(
+      el("h2", null, "Welcome to Mimir"),
+      el("p", null,
+        `Mimir needs ${missing.length === 1 ? "one more free API key" : "a few free API keys"} ` +
+        `before it can build your first briefing: ${missing.join(", ")}.`),
+      el("p", null, "Open Settings to paste them in. They are stored on this machine only."),
+    );
+    const go = el("button", "primary", "Open Settings");
+    go.onclick = () => { view = "settings"; render(); };
+    box.append(go);
+  } else if (server.running) {
+    box.append(
+      el("h2", null, "Building your first briefing"),
+      el("p", null, `${server.step || "Working"}… this takes a few minutes. ` +
+                    "The stories will appear here on their own."),
+    );
+  } else {
+    box.append(
+      el("h2", null, "Ready when you are"),
+      el("p", null, "Your keys are saved. Build the first briefing now, or wait for the " +
+                    "daily refresh."),
+    );
+    const go = el("button", "primary", "Build it now");
+    go.onclick = async () => {
+      go.disabled = true; go.textContent = "Starting…";
+      try { await fetch("/api/refresh", { method: "POST" }); pollStatus(); } catch {}
+    };
+    box.append(go);
+  }
+  host.append(box);
+}
+
 async function load() {
   await detectServer();
   const gotData = await loadArticles();
-  if (!gotData && !server) {
-    document.getElementById("stories").append(
-      el("p", "placeholder", "No briefing yet. Run python3 run_all.py, then reload."));
+  if (!gotData) {
+    render();
+    renderWelcome();
+    if (server) pollStatus();
     return;
   }
   render();
-  if (!gotData) {
-    document.getElementById("stories").replaceChildren(
-      el("p", "placeholder", "No briefing yet. Open Settings and choose Refresh now."));
-  }
   if (server && server.running) pollStatus();
 }
 load();

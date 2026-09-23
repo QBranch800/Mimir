@@ -4,7 +4,11 @@ import time
 import requests
 from dotenv import load_dotenv
 
-load_dotenv()
+import paths
+
+# override, so the key saved in the data directory always wins over one that
+# happens to be in the environment already
+load_dotenv(paths.data(".env"), override=True)
 API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 
 BASE_URL = "https://www.alphavantage.co/query"
@@ -28,6 +32,6 @@ for topic in TOPICS:
 
     time.sleep(2)
 
-with open("results.json", "w") as f:
+with open(paths.data("results.json"), "w") as f:
     json.dump(results, f, indent=2)
 print(f"Saved {len(results)} topics to results.json")

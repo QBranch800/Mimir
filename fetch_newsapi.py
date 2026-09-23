@@ -6,7 +6,11 @@ from datetime import datetime, timedelta, timezone
 import requests
 from dotenv import load_dotenv
 
-load_dotenv()
+import paths
+
+# override, so the key saved in the data directory always wins over one that
+# happens to be in the environment already
+load_dotenv(paths.data(".env"), override=True)
 API_KEY = os.getenv("NEWSAPI_KEY")
 
 URL = "https://newsapi.org/v2/everything"
@@ -87,6 +91,6 @@ for item in unique.values():
         "banner_image": item.get("urlToImage") or "",
     })
 
-with open("newsapi_results.json", "w") as f:
+with open(paths.data("newsapi_results.json"), "w") as f:
     json.dump({"geopolitics": articles}, f, indent=2)
 print(f"Saved {len(articles)} articles to newsapi_results.json")

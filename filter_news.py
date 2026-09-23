@@ -4,6 +4,8 @@ import os
 import re
 from urllib.parse import urlparse
 
+import paths
+
 # Sources that only ever produce algorithmic single-stock filler or SEO content farming
 BLOCKED_SOURCES = {"MarketBeat", "CBIZ", "AD HOC NEWS", "Kalkine Media"}
 BLOCKED_TITLE_PATTERNS = [
@@ -40,12 +42,12 @@ ALLOWED_GEOPOLITICS_DOMAINS = {
 }
 SIMILARITY_THRESHOLD = 0.8
 
-with open("results.json") as f:
+with open(paths.data("results.json")) as f:
     results = json.load(f)
 
 for extra_file in ("newsapi_results.json",):
-    if os.path.exists(extra_file):
-        with open(extra_file) as f:
+    if os.path.exists(paths.data(extra_file)):
+        with open(paths.data(extra_file)) as f:
             extra = json.load(f)
         for topic, articles in extra.items():
             results.setdefault(topic, []).extend(articles)
@@ -114,5 +116,5 @@ print(f"{roundups} recurring market roundups/previews dropped")
 multi = sum(1 for a in kept if a["coverage_count"] > 1)
 print(f"{multi} stories were covered by more than one outlet")
 
-with open("filtered.json", "w") as f:
+with open(paths.data("filtered.json"), "w") as f:
     json.dump(kept, f, indent=2)

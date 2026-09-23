@@ -15,8 +15,9 @@ import json
 import os
 import zoneinfo
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-SCHEDULE_PATH = os.path.join(HERE, "schedule.json")
+import paths
+
+SCHEDULE_PATH = paths.data("schedule.json")
 
 # Gemini's free tier resets its daily allowance at midnight US Pacific, so that is the
 # moment a fresh run has the best chance of finishing.

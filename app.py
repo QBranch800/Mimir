@@ -16,11 +16,24 @@ import time
 
 from flask import Flask, jsonify, request, send_from_directory
 
+import paths
 import scheduler
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ENV_PATH = os.path.join(HERE, ".env")
+HERE = paths.APP_DIR
+ENV_PATH = paths.data(".env")
 PYTHON = sys.executable
+
+
+def step_command(script):
+    """How to run one pipeline step.
+
+    From a checkout that is just python on the script. Inside a packaged app there is
+    no python to call and no .py on disk, so the bundled executable re-runs itself with
+    --step and imports that module instead.
+    """
+    if paths.FROZEN:
+        return [sys.executable, "--step", script[:-3]]
+    return [PYTHON, os.path.join(HERE, script)]
 
 # env var -> label shown in the UI
 KEYS = {
@@ -96,8 +109,8 @@ def pipeline_worker():
         for script, label in steps:
             run_state["step"] = label
             result = subprocess.run(
-                [PYTHON, os.path.join(HERE, script)],
-                cwd=HERE, capture_output=True, text=True, timeout=1800,
+                step_command(script),
+                cwd=paths.DATA_DIR, capture_output=True, text=True, timeout=1800,
             )
             tail = (result.stdout or "").strip().splitlines()[-1:] or [""]
             run_state["log"].append({
@@ -179,8 +192,30 @@ def scheduler_loop():
 
 
 def _data_mtime():
-    scored = os.path.join(HERE, "scored.json")
+    scored = paths.data("scored.json")
     return os.path.getmtime(scored) if os.path.exists(scored) else None
+
+
+def is_listening(port, host="127.0.0.1"):
+    import socket
+    with socket.socket() as sock:
+        sock.settimeout(0.2)
+        return sock.connect_ex((host, port)) == 0
+
+
+def pick_port(preferred=None):
+    """The configured port, or the next free one. Not 5000: macOS answers that with
+    its AirPlay receiver."""
+    import socket
+    start = preferred or int(os.environ.get("PORT", "5111"))
+    for candidate in range(start, start + 20):
+        with socket.socket() as sock:
+            try:
+                sock.bind(("127.0.0.1", candidate))
+                return candidate
+            except OSError:
+                continue
+    return start
 
 
 @app.after_request
@@ -193,16 +228,20 @@ def no_store(response):
 
 @app.get("/")
 def index():
-    return send_from_directory(HERE, "index.html")
+    return send_from_directory(paths.APP_DIR, "index.html")
+
+
+DATA_FILES = {"scored.json", "briefing_data.js", "filtered.json"}
 
 
 @app.get("/<path:filename>")
 def static_file(filename):
-    # send_from_directory refuses to escape HERE, so a crafted path cannot read
-    # files elsewhere on the machine
-    if filename == ".env" or filename.startswith(".env"):
+    # send_from_directory refuses to escape the folder it is given, so a crafted path
+    # cannot read files elsewhere on the machine
+    if filename.startswith(".env"):
         return jsonify({"error": "not found"}), 404
-    return send_from_directory(HERE, filename)
+    folder = paths.DATA_DIR if filename in DATA_FILES else HERE
+    return send_from_directory(folder, filename)
 
 
 @app.get("/api/status")
@@ -285,8 +324,7 @@ def save_keys():
 
 
 if __name__ == "__main__":
-    # not 5000: macOS gives that to the AirPlay receiver, which answers with a 403
-    port = int(os.environ.get("PORT", "5111"))
+    port = pick_port()
     cfg, _ = scheduler.load_schedule()
     print(f"Mimir is running at http://127.0.0.1:{port}")
     if cfg["enabled"]:
