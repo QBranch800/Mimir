@@ -102,9 +102,15 @@ build just for yourself on the machine you are sitting at, run `python3 build_de
 Neither build is signed with a paid developer certificate, so both systems will warn about it
 once. This is about the app being unrecognised, not about anything being wrong with it.
 
-- **macOS:** right-click Mimir and choose Open, then Open again. After that it opens normally.
-  Double-clicking the first time only offers Cancel, which is why the right-click matters. The
-  build is ad-hoc signed, which is what stops macOS claiming the app is damaged.
+- **macOS:** double-clicking shows "Apple could not verify Mimir is free of malware", offering
+  only Move to Trash and Done. Click **Done**, then open **System Settings > Privacy &
+  Security**, scroll to Security, and click **Open Anyway** next to the note about Mimir.
+  Authenticate, then confirm **Open**. After that it launches normally.
+
+  Control-clicking and choosing Open used to work and no longer does: Apple removed that
+  bypass in macOS 15, so System Settings is the only route on current versions. The Open
+  Anyway button appears for about an hour after a blocked attempt; if it is gone, double-click
+  the app again to bring it back.
 - **Windows:** SmartScreen shows "Windows protected your PC". Choose More info, then Run
   anyway.
 

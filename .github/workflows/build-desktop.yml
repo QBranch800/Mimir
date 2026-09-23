@@ -130,8 +130,10 @@ jobs:
             Neither build is signed with a paid certificate, so each system warns once
             the first time:
 
-            - **macOS**: right-click Mimir and choose Open, then Open again. Double-clicking
-              the first time only offers Cancel.
+            - **macOS**: double-clicking offers only Move to Trash. Click Done, then open
+              System Settings > Privacy & Security, scroll to Security, and click Open Anyway
+              next to the note about Mimir. Control-click to open no longer works: Apple
+              removed that bypass in macOS 15.
             - **Windows**: SmartScreen shows "Windows protected your PC". Choose More info,
               then Run anyway.
 
