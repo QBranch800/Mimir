@@ -69,6 +69,19 @@ You can also just open `index.html` from the file system. `score_news.py` writes
 `briefing_data.js` so that works with no server; refreshing and key entry are the only things
 that need `app.py`.
 
+### Keeping it up to date by itself
+
+Mimir schedules its own refresh rather than relying on cron, launchd or Task Scheduler, so it
+behaves the same on macOS, Windows, Linux and a hosted deployment. While `app.py` is running
+it refreshes once a day at a time you choose in Settings, and when it starts up it refreshes
+straight away if the briefing is already out of date. If Gemini refuses a request it tries
+again a few times over the morning, which costs little because scoring is incremental.
+
+The default slot is shortly after Gemini's free daily allowance resets, worked out in your own
+timezone. The one thing the app cannot do is schedule itself while it is not running, so for a
+briefing that is ready before you open anything, either leave `app.py` running, start it at
+login, or host it somewhere that stays up.
+
 Either way, the briefing shows the single most significant story in each category, with a
 reading pane beside it. Settings has a theme switch, a significance threshold, control over
 which categories appear and in what order, and a way to clear saved stories.

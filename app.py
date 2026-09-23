@@ -7,6 +7,7 @@ It binds to 127.0.0.1 on purpose. The refresh endpoint runs the pipeline and the
 keys endpoint writes to .env, so this is not something to expose to a network.
 """
 
+import datetime
 import os
 import subprocess
 import sys
@@ -14,6 +15,8 @@ import threading
 import time
 
 from flask import Flask, jsonify, request, send_from_directory
+
+import scheduler
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(HERE, ".env")
@@ -35,8 +38,10 @@ run_state = {
     "finished": None,
     "ok": None,
     "log": [],
+    "trigger": None,          # "you" or "schedule"
 }
 run_lock = threading.Lock()
+schedule_note = "Starting up."
 
 
 def read_env():
@@ -114,6 +119,69 @@ def pipeline_worker():
         run_state["running"] = False
         run_state["step"] = None
         run_state["finished"] = time.time()
+        _remember_outcome(ok)
+
+
+def _remember_outcome(ok):
+    """Record how a run went, so the scheduler knows whether to try again."""
+    hit_quota = any(
+        "out of gemini requests" in (entry.get("detail") or "").lower()
+        for entry in run_state["log"]
+    )
+    cfg, state = scheduler.load_schedule()
+    scheduler.record_result(state, datetime.datetime.now().astimezone(), ok, hit_quota)
+    scheduler.save_schedule(cfg, state)
+
+
+def start_pipeline(trigger):
+    """Begin a run unless one is already going. Returns True if it started."""
+    with run_lock:
+        if run_state["running"]:
+            return False
+        run_state.update({
+            "running": True, "step": "Starting", "started": time.time(),
+            "finished": None, "ok": None, "log": [], "trigger": trigger,
+        })
+    threading.Thread(target=pipeline_worker, daemon=True).start()
+    return True
+
+
+def scheduler_loop():
+    """Check once a minute whether a refresh is due. This is the whole scheduler:
+    no cron, no launchd, no Task Scheduler, so it behaves the same on every OS and
+    in a hosted deployment."""
+    global schedule_note
+    first_pass = True
+    while True:
+        try:
+            cfg, state = scheduler.load_schedule()
+            now = datetime.datetime.now().astimezone()
+
+            if run_state["running"]:
+                schedule_note = "A refresh is running."
+            else:
+                due, reason = scheduler.should_run(cfg, state, now)
+                stale = first_pass and not due and scheduler.is_stale(
+                    _data_mtime(), cfg, now)
+
+                if due or stale:
+                    why = "schedule" if due else "startup"
+                    schedule_note = ("Refreshing now." if due else
+                                     "The briefing was out of date, so refreshing now.")
+                    scheduler.record_attempt(state, now)
+                    scheduler.save_schedule(cfg, state)
+                    start_pipeline(why)
+                else:
+                    schedule_note = reason
+            first_pass = False
+        except Exception as exc:                   # noqa: BLE001 - never kill the thread
+            schedule_note = f"Scheduler problem: {exc}"
+        time.sleep(60)
+
+
+def _data_mtime():
+    scored = os.path.join(HERE, "scored.json")
+    return os.path.getmtime(scored) if os.path.exists(scored) else None
 
 
 @app.after_request
@@ -141,7 +209,7 @@ def static_file(filename):
 @app.get("/api/status")
 def status():
     env = read_env()
-    scored = os.path.join(HERE, "scored.json")
+    cfg, state = scheduler.load_schedule()
     return jsonify({
         "server": True,
         "running": run_state["running"],
@@ -150,24 +218,50 @@ def status():
         "finished": run_state["finished"],
         "ok": run_state["ok"],
         "log": run_state["log"],
+        "trigger": run_state["trigger"],
         # whether each key is set, never the value itself
         "keys": {name: bool(env.get(name)) for name in KEYS},
         "keyLabels": KEYS,
-        "dataUpdated": os.path.getmtime(scored) if os.path.exists(scored) else None,
+        "dataUpdated": _data_mtime(),
+        "schedule": {
+            "enabled": cfg["enabled"],
+            "time": cfg["time"],
+            "note": schedule_note,
+            "lastSuccess": state.get("last_success"),
+            "quotaResetsAt": scheduler.default_time(),
+        },
     })
 
 
 @app.post("/api/refresh")
 def refresh():
-    with run_lock:
-        if run_state["running"]:
-            return jsonify({"error": "A refresh is already running."}), 409
-        run_state.update({
-            "running": True, "step": "Starting", "started": time.time(),
-            "finished": None, "ok": None, "log": [],
-        })
-    threading.Thread(target=pipeline_worker, daemon=True).start()
+    if not start_pipeline("you"):
+        return jsonify({"error": "A refresh is already running."}), 409
     return jsonify({"started": True})
+
+
+@app.post("/api/schedule")
+def set_schedule():
+    payload = request.get_json(silent=True) or {}
+    cfg, state = scheduler.load_schedule()
+
+    if "enabled" in payload:
+        cfg["enabled"] = bool(payload["enabled"])
+    if payload.get("time"):
+        value = str(payload["time"])
+        try:
+            hour, minute = value.split(":")
+            if not (0 <= int(hour) < 24 and 0 <= int(minute) < 60):
+                raise ValueError
+            cfg["time"] = f"{int(hour):02d}:{int(minute):02d}"
+        except (ValueError, TypeError):
+            return jsonify({"error": "Time should look like 07:30."}), 400
+        # a new slot deserves a fresh chance today
+        state["attempts"] = {}
+        state["last_attempt"] = 0
+
+    scheduler.save_schedule(cfg, state)
+    return jsonify({"enabled": cfg["enabled"], "time": cfg["time"]})
 
 
 @app.post("/api/keys")
@@ -194,8 +288,15 @@ def save_keys():
 if __name__ == "__main__":
     # not 5000: macOS gives that to the AirPlay receiver, which answers with a 403
     port = int(os.environ.get("PORT", "5111"))
+    cfg, _ = scheduler.load_schedule()
     print(f"Mimir is running at http://127.0.0.1:{port}")
+    if cfg["enabled"]:
+        print(f"It will refresh itself daily at {cfg['time']}, and on startup if the "
+              f"briefing is more than {cfg['stale_hours']} hours old.")
+    else:
+        print("Automatic refresh is off. Turn it on in Settings.")
     print("Press Ctrl+C to stop.")
+    threading.Thread(target=scheduler_loop, daemon=True).start()
     try:
         app.run(host="127.0.0.1", port=port, debug=False)
     except OSError as exc:

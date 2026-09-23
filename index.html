@@ -196,6 +196,17 @@
   .log-line { margin: 6px 0 0; font-size: 12.5px; }
   .log-line.bad { color: #b3341c; }
 
+  .sched-toggle { margin-bottom: 10px; }
+  .sched-row { display: flex; align-items: center; gap: 9px; }
+  .sched-label { font-size: 14px; color: var(--ink-2); }
+  .sched-time {
+    border: 1px solid var(--rule); border-radius: 8px; padding: 6px 10px;
+    background: var(--bg); color: var(--ink); font: inherit; font-size: 13.5px;
+  }
+  .sched-time:disabled { opacity: 0.45; }
+  .sched-hint, .sched-state { margin: 12px 0 0; }
+  .sched-state { color: var(--ink-2); }
+
   .keys { display: flex; flex-direction: column; gap: 14px; }
   .key-row { display: flex; flex-direction: column; gap: 6px; }
   .key-top { display: flex; align-items: baseline; gap: 9px; font-size: 14px; }
@@ -399,6 +410,7 @@ function renderSettings(host) {
   // has nothing to run the pipeline or write .env.
   if (server) {
     host.append(renderRefresh());
+    host.append(renderSchedule());
     host.append(renderKeys());
   } else {
     const g = settingsGroup("Refreshing and API keys",
@@ -511,7 +523,9 @@ function renderRefresh() {
   g.append(btn);
 
   if (server.running && server.step) {
-    g.append(el("p", "set-note run-step", `${server.step}…  this takes a few minutes.`));
+    const who = server.trigger === "schedule" ? " (started automatically)" : "";
+    g.append(el("p", "set-note run-step",
+      `${server.step}…  this takes a few minutes${who}.`));
   }
   for (const entry of server.log || []) {
     g.append(el("p", "set-note log-line" + (entry.ok ? "" : " bad"),
@@ -521,6 +535,51 @@ function renderRefresh() {
     g.append(el("p", "set-error", "The refresh did not finish. See the steps above."));
   }
   return g;
+}
+
+function renderSchedule() {
+  const s = server.schedule || {};
+  const g = settingsGroup("Refresh automatically",
+    "Mimir refreshes itself while it is running, and again on startup if the briefing " +
+    "is out of date, so it is ready when you open it.");
+
+  const toggle = el("label", "cat-toggle sched-toggle");
+  const box = el("input"); box.type = "checkbox"; box.checked = !!s.enabled;
+  box.onchange = () => saveSchedule({ enabled: box.checked });
+  toggle.append(box, el("span", null, "Refresh once a day"));
+  g.append(toggle);
+
+  const row = el("div", "sched-row");
+  const label = el("span", "sched-label", "at");
+  const timeInput = el("input", "sched-time");
+  timeInput.type = "time";
+  timeInput.value = s.time || "07:00";
+  timeInput.disabled = !s.enabled;
+  timeInput.onchange = () => saveSchedule({ time: timeInput.value });
+  row.append(label, timeInput);
+  g.append(row);
+
+  if (s.quotaResetsAt) {
+    g.append(el("p", "set-note sched-hint",
+      `Gemini's free daily allowance resets at ${s.quotaResetsAt} your time, so a slot ` +
+      `shortly after that has the best chance of finishing.`));
+  }
+  if (s.note) g.append(el("p", "set-note sched-state", s.note));
+  return g;
+}
+
+async function saveSchedule(changes) {
+  try {
+    const r = await fetch("/api/schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(changes),
+    });
+    if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+    await pollStatus();
+  } catch (err) {
+    alert(String(err.message || err));
+  }
 }
 
 function renderKeys() {
