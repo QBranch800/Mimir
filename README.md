@@ -87,15 +87,36 @@ which categories appear and in what order, and a way to clear saved stories.
 
 ## As a desktop app
 
-`python3 build_desktop.py` packages Mimir into a double-clickable app: `Mimir.app` on macOS,
-`Mimir.exe` on Windows, a binary on Linux. It wraps the same server in a native window, so the
-desktop app, the web version and the scripts all run the same code. PyInstaller does not cross
-compile, so build on the OS you are targeting.
+### Getting a build
 
-Installed that way, your keys and briefing live in the folder each OS keeps application data
-in, not inside the app, so updating or reinstalling never wipes them. Set `MIMIR_DATA_DIR` to
-put them somewhere else. On first run the app asks for your API keys rather than showing an
-empty briefing.
+Push a `v*` tag, or open the Actions tab on GitHub and run **Build desktop apps**. It builds on
+a real Mac and a real Windows machine (PyInstaller cannot cross compile, so each app has to be
+built on its own OS) and attaches `Mimir-macOS.zip` and `Mimir-Windows.zip` to the run. To
+build just for yourself on the machine you are sitting at, run `python3 build_desktop.py`.
+
+### Opening it the first time
+
+Neither build is signed with a paid developer certificate, so both systems will warn about it
+once. This is about the app being unrecognised, not about anything being wrong with it.
+
+- **macOS:** right-click Mimir and choose Open, then Open again. After that it opens normally.
+  Double-clicking the first time only offers Cancel, which is why the right-click matters. The
+  build is ad-hoc signed, which is what stops macOS claiming the app is damaged.
+- **Windows:** SmartScreen shows "Windows protected your PC". Choose More info, then Run
+  anyway.
+
+### Where your data lives
+
+Keys, fetched news and settings are kept in the folder your system uses for application data,
+not inside the app, so updating or reinstalling never wipes them:
+
+- macOS: `~/Library/Application Support/Mimir`
+- Windows: `%APPDATA%\Mimir`
+
+Set `MIMIR_DATA_DIR` to put them somewhere else. Every run also writes `run.log` there, which
+is the first place to look if a refresh did not do what you expected.
+
+On first run the app asks for your API keys rather than showing an empty briefing.
 
 ## Roadmap
 
@@ -108,5 +129,6 @@ empty briefing.
 - [x] Run the whole pipeline with one command
 - [x] Refresh the briefing and save API keys from the page, via a local server
 - [x] Refresh on a schedule, the same way on every OS and in a hosted deployment
-- [x] Package as a desktop app for macOS, Windows and Linux
-- [ ] Sign and notarise the macOS build so it opens without a security warning
+- [x] Package as a desktop app for macOS and Windows, built automatically on GitHub
+- [ ] Sign and notarise the builds so they open without a security warning (needs a paid
+      Apple Developer account, and a code signing certificate on Windows)

@@ -1,0 +1,101 @@
+name: Build desktop apps
+
+# PyInstaller cannot cross compile, so each app has to be built on its own OS.
+# GitHub runs both for us: start this from the Actions tab, or push a v* tag.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false        # a failure on one OS should not hide the other's result
+      matrix:
+        include:
+          - os: macos-latest
+            name: macOS
+            artifact: Mimir-macOS
+          - os: windows-latest
+            name: Windows
+            artifact: Mimir-Windows
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build
+        run: python build_desktop.py
+
+      - name: Check something was actually produced
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            test -d dist/Mimir.app || { echo "no Mimir.app"; exit 1; }
+            test -x dist/Mimir.app/Contents/MacOS/Mimir || { echo "no executable"; exit 1; }
+          else
+            test -f dist/Mimir/Mimir.exe || test -f dist/Mimir.exe || { echo "no Mimir.exe"; exit 1; }
+          fi
+          echo "Build looks sane:"
+          ls -la dist
+
+      - name: Smoke test that it runs and refuses without a key
+        shell: bash
+        env:
+          MIMIR_DATA_DIR: ${{ runner.temp }}/mimir-data
+        run: |
+          mkdir -p "$MIMIR_DATA_DIR"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            APP="dist/Mimir.app/Contents/MacOS/Mimir"
+          else
+            APP="dist/Mimir/Mimir.exe"; [ -f "$APP" ] || APP="dist/Mimir.exe"
+          fi
+
+          # --step needs no window, so this works on a runner with no display.
+          # Checked by exit code and by what lands on disk rather than by console
+          # output, because a windowed build may have no usable stdout.
+          set +e
+          "$APP" --step fetch_newsapi
+          code=$?
+          set -e
+
+          if [ "$code" -eq 0 ]; then
+            echo "FAIL: fetching succeeded with no key configured"
+            exit 1
+          fi
+          if [ -f "$MIMIR_DATA_DIR/newsapi_results.json" ]; then
+            echo "FAIL: it wrote news data with no key configured"
+            exit 1
+          fi
+          echo "Refused to fetch without a key, and wrote nothing. Correct."
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p upload
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # ditto preserves the bundle's structure and permissions; zip does not
+            ditto -c -k --keepParent dist/Mimir.app upload/Mimir-macOS.zip
+          else
+            powershell -Command "Compress-Archive -Path dist/Mimir/* -DestinationPath upload/Mimir-Windows.zip" \
+              || powershell -Command "Compress-Archive -Path dist/Mimir.exe -DestinationPath upload/Mimir-Windows.zip"
+          fi
+          ls -la upload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: upload/*
+          retention-days: 14

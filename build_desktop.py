@@ -67,10 +67,34 @@ def main():
         return result.returncode
 
     built = os.path.join(HERE, "dist")
+    if sys.platform == "darwin":
+        sign_adhoc(os.path.join(built, "Mimir.app"))
+
     print(f"\nDone. Look in {built}")
     print("Your keys and briefing are kept outside the app, in the folder each OS uses "
           "for application data, so an update never wipes them.")
     return 0
+
+
+def sign_adhoc(app_path):
+    """Sign with an ad-hoc signature, which costs nothing and needs no account.
+
+    Without any signature at all, macOS refuses an app copied from another machine
+    outright ("Mimir is damaged and can't be opened"), which looks like a broken
+    download. Ad-hoc signing turns that into the ordinary unidentified-developer
+    prompt, which a person can get past by right-clicking and choosing Open. Only a
+    paid Developer ID removes the prompt entirely.
+    """
+    if not os.path.exists(app_path):
+        return
+    result = subprocess.run(
+        ["codesign", "--force", "--deep", "--sign", "-", app_path],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        print("Signed with an ad-hoc signature.")
+    else:
+        print(f"Could not sign: {result.stderr.strip()[:120]}")
 
 
 if __name__ == "__main__":

@@ -15,6 +15,14 @@ import time
 
 def run_step(name):
     """Run one pipeline step inside this executable. Importing it runs it."""
+    # A windowed app has no console, so on Windows sys.stdout can be None and an
+    # ordinary print() would crash the step. When the server runs us it hands us
+    # pipes and these are real; this only covers the case where they are not.
+    import os
+    for stream in ("stdout", "stderr"):
+        if getattr(sys, stream, None) is None:
+            setattr(sys, stream, open(os.devnull, "w"))
+
     allowed = {"fetch_news", "fetch_newsapi", "filter_news", "score_news"}
     if name not in allowed:
         print(f"Unknown step: {name}")
