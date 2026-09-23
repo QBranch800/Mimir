@@ -89,9 +89,12 @@ which categories appear and in what order, and a way to clear saved stories.
 
 ### Getting a build
 
-Push a `v*` tag, or open the Actions tab on GitHub and run **Build desktop apps**. It builds on
-a real Mac and a real Windows machine (PyInstaller cannot cross compile, so each app has to be
-built on its own OS) and attaches `Mimir-macOS.zip` and `Mimir-Windows.zip` to the run. To
+Ready-made builds are on the [releases page](https://github.com/QBranch800/Mimir/releases).
+
+Pushing a `v*` tag builds both and publishes them there. Running **Build desktop apps** from
+the Actions tab builds them without publishing, leaving the zips attached to that run for two
+weeks. Either way they are built on a real Mac and a real Windows machine, because PyInstaller
+cannot cross compile. To
 build just for yourself on the machine you are sitting at, run `python3 build_desktop.py`.
 
 ### Opening it the first time

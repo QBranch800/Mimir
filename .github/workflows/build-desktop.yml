@@ -99,3 +99,41 @@ jobs:
           name: ${{ matrix.artifact }}
           path: upload/*
           retention-days: 14
+
+  # Artifacts above expire and need a GitHub login to fetch. A release gives the two
+  # builds a permanent public link, which is what you can actually send someone.
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # needed to create the release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloaded
+
+      - name: Collect the builds
+        run: |
+          mkdir -p release
+          find downloaded -name "*.zip" -exec cp {} release/ \;
+          ls -la release
+          test -n "$(ls -A release)" || { echo "nothing to release"; exit 1; }
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          body: |
+            Download the build for your system below, unzip it, and open it.
+
+            Neither build is signed with a paid certificate, so each system warns once
+            the first time:
+
+            - **macOS**: right-click Mimir and choose Open, then Open again. Double-clicking
+              the first time only offers Cancel.
+            - **Windows**: SmartScreen shows "Windows protected your PC". Choose More info,
+              then Run anyway.
+
+            Mimir needs three free API keys, from alphavantage.co, aistudio.google.com and
+            newsapi.org. It asks for them on first run, and keeps them on your machine.
