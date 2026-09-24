@@ -4,7 +4,7 @@ A daily briefing app that surfaces genuinely market-moving news across five fixe
 
 ## Status
 
-Early development, but usable end to end. It fetches headlines from Alpha Vantage and NewsAPI, removes duplicates and known noise, scores what is left for significance with Gemini across the five categories, and shows the leading story in each as a briefing you read in the browser. A local server adds a refresh button, somewhere to keep your API keys, and a daily schedule.
+Early development, but usable end to end. It fetches headlines from Alpha Vantage and NewsAPI, removes duplicates and known noise, scores what is left for significance with Gemini across the five categories, and shows the leading story in each as a briefing you read in the browser. A local server adds a refresh button and somewhere to keep your API keys, and the briefing refreshes itself when you open the app.
 
 ## Setup
 
@@ -67,21 +67,20 @@ You can also just open `index.html` from the file system. `score_news.py` writes
 `briefing_data.js` so that works with no server; refreshing and key entry are the only things
 that need `app.py`.
 
-### Keeping it up to date by itself
+### Keeping it up to date
 
-Mimir schedules its own refresh rather than relying on cron, launchd or Task Scheduler, so it
-behaves the same on macOS, Windows, Linux and a hosted deployment. It refreshes on two triggers: when it
-starts up, if the briefing was not built today, and once a day at a time you choose in
-Settings while it keeps running. The first covers opening the app fresh each morning, the
-second covers a hosted deployment or an app left open, where startup happened long ago. If Gemini refuses a request it tries
-again a few times over the morning, which costs little because scoring is incremental.
+When you open Mimir and the briefing is not from today, it builds a new one. There is no timer,
+so nothing runs while Mimir is closed, and a refresh never happens behind your back. You can
+also press Refresh in Settings at any time, or switch refreshing on open off there.
 
-The default slot is shortly after Gemini's free daily allowance resets, worked out in your own
-timezone. The one thing the app cannot do is schedule itself while it is not running, so for a
-briefing that is ready before you open anything, either leave `app.py` running, start it at
-login, or host it somewhere that stays up.
+A refresh takes a minute or two, during which the previous briefing stays on screen. If you
+would rather it was ready the moment you look, add Mimir to your Login Items (macOS) or Startup
+folder (Windows), so it opens and refreshes when the computer starts.
 
-Either way, the briefing shows the single most significant story in each category, with a
+If Gemini is out of requests for the day, Mimir says so and does not try again until the
+allowance resets, since opening the app again before then would only fail the same way.
+
+The briefing shows the single most significant story in each category, with a
 reading pane beside it. Settings has a theme switch, a significance threshold, control over
 which categories appear and in what order, and a way to clear saved stories.
 
@@ -137,7 +136,7 @@ On first run the app asks for your API keys rather than showing an empty briefin
 - [x] Settings: theme, significance threshold, category choice and order
 - [x] Run the whole pipeline with one command
 - [x] Refresh the briefing and save API keys from the page, via a local server
-- [x] Refresh on a schedule, the same way on every OS and in a hosted deployment
+- [x] Refresh when the app opens, if the briefing is not from today
 - [x] Package as a desktop app for macOS and Windows, built automatically on GitHub
 - [ ] Sign and notarise the builds so they open without a security warning (needs a paid
       Apple Developer account, and a code signing certificate on Windows)

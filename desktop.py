@@ -39,10 +39,7 @@ def main():
 
     import app as server
     import paths
-    import scheduler
-
     port = server.pick_port()
-    cfg, _ = scheduler.load_schedule()
 
     threading.Thread(
         # load_dotenv=False: see the note in app.py
@@ -50,7 +47,7 @@ def main():
                                       use_reloader=False, load_dotenv=False),
         daemon=True,
     ).start()
-    threading.Thread(target=server.scheduler_loop, daemon=True).start()
+    threading.Thread(target=server.refresh_on_open, daemon=True).start()
 
     # give the server a moment so the window does not open on a connection error
     for _ in range(50):
@@ -59,9 +56,6 @@ def main():
         time.sleep(0.1)
 
     print(f"Mimir: data in {paths.DATA_DIR}")
-    if cfg["enabled"]:
-        print(f"Refreshing on startup if the briefing is not from today, "
-              f"and daily at {cfg['time']}.")
 
     webview.create_window("Mimir", f"http://127.0.0.1:{port}",
                           width=1280, height=860, min_size=(820, 600))

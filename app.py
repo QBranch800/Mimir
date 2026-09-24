@@ -17,7 +17,7 @@ import time
 from flask import Flask, jsonify, request, send_from_directory
 
 import paths
-import scheduler
+import freshness
 
 HERE = paths.APP_DIR
 ENV_PATH = paths.data(".env")
@@ -51,10 +51,11 @@ run_state = {
     "finished": None,
     "ok": None,
     "log": [],
-    "trigger": None,          # "you" or "schedule"
+    "trigger": None,          # "you" or "open"
+    "hit_quota": False,       # every Gemini model was out of requests
 }
 run_lock = threading.Lock()
-schedule_note = "Starting up."
+refresh_note = "Starting up."
 
 
 def read_env():
@@ -120,6 +121,9 @@ def pipeline_worker():
                 if result.stderr:
                     log.write("--- stderr ---\n" + result.stderr)
 
+            if "every model is out of requests" in (result.stdout or "").lower():
+                run_state["hit_quota"] = True
+
             tail = (result.stdout or "").strip().splitlines()[-1:] or [""]
             run_state["log"].append({
                 "step": label,
@@ -143,14 +147,14 @@ def pipeline_worker():
 
 
 def _remember_outcome(ok):
-    """Record how a run went, so the scheduler knows whether to try again."""
-    hit_quota = any(
-        "out of gemini requests" in (entry.get("detail") or "").lower()
-        for entry in run_state["log"]
-    )
-    cfg, state = scheduler.load_schedule()
-    scheduler.record_result(state, datetime.datetime.now().astimezone(), ok, hit_quota)
-    scheduler.save_schedule(cfg, state)
+    """Record how a run went, so opening the app knows whether trying again is pointless."""
+    global refresh_note
+    now = datetime.datetime.now().astimezone()
+    enabled, state = freshness.load()
+    freshness.record_result(state, now, ok, run_state["hit_quota"])
+    freshness.save(enabled, state)
+    # so the page says how things ended up rather than still saying "refreshing"
+    _, refresh_note = freshness.needs_refresh(True, state, _data_mtime(), now)
 
 
 def start_pipeline(trigger):
@@ -161,42 +165,27 @@ def start_pipeline(trigger):
         run_state.update({
             "running": True, "step": "Starting", "started": time.time(),
             "finished": None, "ok": None, "log": [], "trigger": trigger,
+            "hit_quota": False,
         })
     threading.Thread(target=pipeline_worker, daemon=True).start()
     return True
 
 
-def scheduler_loop():
-    """Check once a minute whether a refresh is due. This is the whole scheduler:
-    no cron, no launchd, no Task Scheduler, so it behaves the same on every OS and
-    in a hosted deployment."""
-    global schedule_note
-    first_pass = True
-    while True:
-        try:
-            cfg, state = scheduler.load_schedule()
-            now = datetime.datetime.now().astimezone()
+def refresh_on_open():
+    """Called once when the app starts: refresh if the briefing is not from today.
 
-            if run_state["running"]:
-                schedule_note = "A refresh is running."
-            else:
-                due, reason = scheduler.should_run(cfg, state, now)
-                stale = first_pass and not due and scheduler.is_stale(
-                    _data_mtime(), cfg, now)
-
-                if due or stale:
-                    why = "schedule" if due else "startup"
-                    schedule_note = ("Refreshing now." if due else
-                                     "The briefing was out of date, so refreshing now.")
-                    scheduler.record_attempt(state, now)
-                    scheduler.save_schedule(cfg, state)
-                    start_pipeline(why)
-                else:
-                    schedule_note = reason
-            first_pass = False
-        except Exception as exc:                   # noqa: BLE001 - never kill the thread
-            schedule_note = f"Scheduler problem: {exc}"
-        time.sleep(60)
+    There is deliberately no timer. One inside the app can only fire while the app is
+    running, so it rarely did; opening the app is the moment the briefing is wanted.
+    """
+    global refresh_note
+    try:
+        enabled, state = freshness.load()
+        due, refresh_note = freshness.needs_refresh(
+            enabled, state, _data_mtime(), datetime.datetime.now().astimezone())
+        if due:
+            start_pipeline("open")
+    except Exception as exc:                       # noqa: BLE001 - shown on the page
+        refresh_note = f"Could not check the briefing: {exc}"
 
 
 def _data_mtime():
@@ -255,7 +244,7 @@ def static_file(filename):
 @app.get("/api/status")
 def status():
     env = read_env()
-    cfg, state = scheduler.load_schedule()
+    enabled, state = freshness.load()
     return jsonify({
         "server": True,
         "running": run_state["running"],
@@ -269,12 +258,10 @@ def status():
         "keys": {name: bool(env.get(name)) for name in KEYS},
         "keyLabels": KEYS,
         "dataUpdated": _data_mtime(),
-        "schedule": {
-            "enabled": cfg["enabled"],
-            "time": cfg["time"],
-            "note": schedule_note,
+        "refreshOnOpen": {
+            "enabled": enabled,
+            "note": refresh_note,
             "lastSuccess": state.get("last_success"),
-            "quotaResetsAt": scheduler.default_time(),
         },
     })
 
@@ -286,28 +273,14 @@ def refresh():
     return jsonify({"started": True})
 
 
-@app.post("/api/schedule")
-def set_schedule():
+@app.post("/api/refresh-on-open")
+def set_refresh_on_open():
     payload = request.get_json(silent=True) or {}
-    cfg, state = scheduler.load_schedule()
-
+    enabled, state = freshness.load()
     if "enabled" in payload:
-        cfg["enabled"] = bool(payload["enabled"])
-    if payload.get("time"):
-        value = str(payload["time"])
-        try:
-            hour, minute = value.split(":")
-            if not (0 <= int(hour) < 24 and 0 <= int(minute) < 60):
-                raise ValueError
-            cfg["time"] = f"{int(hour):02d}:{int(minute):02d}"
-        except (ValueError, TypeError):
-            return jsonify({"error": "Time should look like 07:30."}), 400
-        # a new slot deserves a fresh chance today
-        state["attempts"] = {}
-        state["last_attempt"] = 0
-
-    scheduler.save_schedule(cfg, state)
-    return jsonify({"enabled": cfg["enabled"], "time": cfg["time"]})
+        enabled = bool(payload["enabled"])
+    freshness.save(enabled, state)
+    return jsonify({"enabled": enabled})
 
 
 @app.post("/api/keys")
@@ -333,15 +306,9 @@ def save_keys():
 
 if __name__ == "__main__":
     port = pick_port()
-    cfg, _ = scheduler.load_schedule()
     print(f"Mimir is running at http://127.0.0.1:{port}")
-    if cfg["enabled"]:
-        print(f"It refreshes on startup if the briefing is not from today, and again "
-              f"daily at {cfg['time']} while it keeps running.")
-    else:
-        print("Automatic refresh is off. Turn it on in Settings.")
-    print("Press Ctrl+C to stop.")
-    threading.Thread(target=scheduler_loop, daemon=True).start()
+    print("It refreshes now if the briefing is not from today. Press Ctrl+C to stop.")
+    threading.Thread(target=refresh_on_open, daemon=True).start()
     try:
         # load_dotenv=False: Flask otherwise searches the working directory for a .env
         # and loads it into the environment, which would quietly override the keys the

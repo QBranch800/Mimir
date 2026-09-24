@@ -197,14 +197,7 @@
   .log-line.bad { color: #b3341c; }
 
   .sched-toggle { margin-bottom: 10px; }
-  .sched-row { display: flex; align-items: center; gap: 9px; }
-  .sched-label { font-size: 14px; color: var(--ink-2); }
-  .sched-time {
-    border: 1px solid var(--rule); border-radius: 8px; padding: 6px 10px;
-    background: var(--bg); color: var(--ink); font: inherit; font-size: 13.5px;
-  }
-  .sched-time:disabled { opacity: 0.45; }
-  .sched-hint, .sched-state { margin: 12px 0 0; }
+  .sched-state { margin: 12px 0 0; }
   .sched-state { color: var(--ink-2); }
 
   .keys { display: flex; flex-direction: column; gap: 14px; }
@@ -408,7 +401,7 @@ function renderSettings(host) {
   // has nothing to run the pipeline or write .env.
   if (server) {
     host.append(renderRefresh());
-    host.append(renderSchedule());
+    host.append(renderRefreshOnOpen());
     host.append(renderKeys());
   } else {
     const g = settingsGroup("Refreshing and API keys",
@@ -521,7 +514,7 @@ function renderRefresh() {
   g.append(btn);
 
   if (server.running && server.step) {
-    const who = server.trigger === "schedule" ? " (started automatically)" : "";
+    const who = server.trigger === "open" ? " (started when Mimir opened)" : "";
     g.append(el("p", "set-note run-step",
       `${server.step}…  this takes a few minutes${who}.`));
   }
@@ -535,43 +528,28 @@ function renderRefresh() {
   return g;
 }
 
-function renderSchedule() {
-  const s = server.schedule || {};
-  const g = settingsGroup("Refresh automatically",
-    "Mimir refreshes itself while it is running, and again on startup if the briefing " +
-    "is out of date, so it is ready when you open it.");
+function renderRefreshOnOpen() {
+  const s = server.refreshOnOpen || {};
+  const g = settingsGroup("Refresh on open",
+    "When you open Mimir and the briefing is not from today, it builds a new one. " +
+    "There is no timer, so nothing runs while Mimir is closed.");
 
   const toggle = el("label", "cat-toggle sched-toggle");
-  const box = el("input"); box.type = "checkbox"; box.checked = !!s.enabled;
-  box.onchange = () => saveSchedule({ enabled: box.checked });
-  toggle.append(box, el("span", null, "Refresh once a day"));
+  const box = el("input"); box.type = "checkbox"; box.checked = s.enabled !== false;
+  box.onchange = () => saveRefreshOnOpen(box.checked);
+  toggle.append(box, el("span", null, "Refresh when Mimir opens"));
   g.append(toggle);
 
-  const row = el("div", "sched-row");
-  const label = el("span", "sched-label", "at");
-  const timeInput = el("input", "sched-time");
-  timeInput.type = "time";
-  timeInput.value = s.time || "07:00";
-  timeInput.disabled = !s.enabled;
-  timeInput.onchange = () => saveSchedule({ time: timeInput.value });
-  row.append(label, timeInput);
-  g.append(row);
-
-  if (s.quotaResetsAt) {
-    g.append(el("p", "set-note sched-hint",
-      `Gemini's free daily allowance resets at ${s.quotaResetsAt} your time, so a slot ` +
-      `shortly after that has the best chance of finishing.`));
-  }
   if (s.note) g.append(el("p", "set-note sched-state", s.note));
   return g;
 }
 
-async function saveSchedule(changes) {
+async function saveRefreshOnOpen(enabled) {
   try {
-    const r = await fetch("/api/schedule", {
+    const r = await fetch("/api/refresh-on-open", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(changes),
+      body: JSON.stringify({ enabled }),
     });
     if (!r.ok) throw new Error((await r.json()).error || r.statusText);
     await pollStatus();
