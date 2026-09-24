@@ -17,6 +17,10 @@ BLOCKED_TITLE_PATTERNS = [
     re.compile(r"^(what|why|could|is|are|has|does|do)\b.{0,80}\([A-Z]{2,6}:[A-Z.]+\)", re.I),
     # algorithmic stock-movement filler, e.g. "X stock edges higher after ..."
     re.compile(r"\bstock (edges|gains?|holds?|slips?|trades?|heads?|dips?|climbs?)\b", re.I),
+    # the same thing written more excitedly, e.g. "Why Is X Stock Surging Premarket?"
+    re.compile(r"\bstocks? (is |are )?(surg|soar|jump|plung|tumbl|ralli|rall|sink|spik|"
+               r"crater|slump|skyrocket)\w*", re.I),
+    re.compile(r"\b(pre-?market|after-?hours) (trading|move|gains?|losses?|today)\b", re.I),
 ]
 
 # Recurring market roundups and previews. These are competing briefings, not discrete events,

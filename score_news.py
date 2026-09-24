@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import time
@@ -31,7 +32,12 @@ print(f"Using Gemini key from "
       f"(ends ...{_key[-4:]})")
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-MODEL = "gemini-3.6-flash"
+# Tried in order. The full Flash model scores best, but it has refused batches with
+# 503 "high demand" on most days, when the lighter flash-lite models answered the same
+# 50 article batch in a few seconds. Falling back keeps a run from failing outright.
+# Gemini counts its free daily allowance per model, so each fallback also has its own
+# 20 requests rather than sharing the first model's.
+MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 # Not one big batch. A 134 article request was refused with 503 "high demand" over and
 # over while a 5 article one to the same model went through seconds later, so large
 # requests get shed when the service is busy, whatever the token limits allow. Batches
@@ -40,9 +46,11 @@ MODEL = "gemini-3.6-flash"
 BATCH_SIZE = 50
 MAX_ATTEMPTS = 3
 RETRY_CODES = {429}          # 503 is handled separately: it is not worth retrying
-# Every call counts against the free tier's 20 a day, including ones the server fails.
-# A clean run costs four: three batches for ~135 articles, plus the second pass.
-REQUEST_BUDGET = 8
+# Every call counts against its model's 20 a day, including ones the server fails.
+# A clean run costs four: three batches for ~135 articles, plus the second pass. When
+# the first model is overloaded each batch costs one extra request to find a free one,
+# so this allows for that without letting a bad day run away with the allowance.
+REQUEST_BUDGET = 12
 MIN_SCORE = 4
 TEXT_CANDIDATES = 20
 TITLE_STAGE_CHARS = 300
@@ -79,8 +87,23 @@ weighty the backdrop it cites. For example:
   "none", not geopolitics, even if the jitters come from a government's trade decision.
 - "A new US mine nears startup with EXIM Bank financing" is one project being built. It is
   "none", not US fiscal policy, which means budget, taxation or spending decisions themselves.
+- "L3Harris awarded $876 million Navy contract" is one company winning a contract. It is
+  "none", not US fiscal policy, however large the sum.
+- "Medicare lab fee changes hit BillionToOne and CareDx" is about two companies' revenue. It is
+  "none". A rule change reported as its effect on named companies is a company story.
+- "Why is X stock surging premarket?" is a share price move. It is always "none".
 The same story told the other way round does belong: "US and China agree agricultural
 concessions at summit" is geopolitics, because the agreement is the subject.
+
+Keep to the level each category names:
+- US fiscal policy means the US federal government: Congress, the Treasury, the White House
+  budget, federal taxes and federal spending decisions. A state legislature, a city council, a
+  utility's rates or a regulator's fee schedule is not it, even when money is involved.
+- Monetary policy means central banks: the Fed, ECB, BoE, BoJ and their peers setting rates,
+  guidance, balance sheets or the money itself. Commercial banks building products, even
+  digital money products, are not monetary policy.
+- If an article sits on the edge of a category, it does not belong there. It is better for a
+  category to have nothing today than to fill it with something that only nearly fits.
 
 Score each article's significance from 1 to 10:
 - 9-10: a major event in one of the five categories that could move whole markets or the
@@ -110,6 +133,12 @@ Each article line shows: id | source | how many outlets covered the story | titl
 Give a one-sentence reason for each score. Return one entry per article, using the id given."""
 
 
+# A score only means something under the prompt that produced it. Stamping each one
+# with a fingerprint of the prompt means tuning the prompt automatically redoes the
+# stale scores, rather than someone having to remember to clear them by hand.
+PROMPT_VERSION = hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()[:12]
+
+
 class Score(BaseModel):
     id: int
     score: int
@@ -120,6 +149,9 @@ class Score(BaseModel):
 
 requests_made = 0
 out_of_quota = False
+exhausted = set()            # models that have run out of today's allowance
+overloaded = set()           # models that refused with 503 earlier in this run
+last_model = None            # which model answered the most recent batch
 
 
 def is_daily_quota(error):
@@ -128,8 +160,13 @@ def is_daily_quota(error):
     return "429" in text and ("PerDay" in text or "per day" in text)
 
 
-def score_batch(batch, chars):
-    global requests_made, out_of_quota
+def score_batch(batch, chars, models=None):
+    """Score one batch, falling back through MODELS when one is overloaded or spent.
+
+    Pass models to restrict which are tried: upgrading a provisional score only makes
+    sense with the primary, so falling back there would just redo the same work.
+    """
+    global out_of_quota, last_model
 
     lines = []
     for i, article in enumerate(batch):
@@ -137,18 +174,45 @@ def score_batch(batch, chars):
             f"id {i} | {article['source']} | {article['coverage_count']} outlet(s) | "
             f"{article['title']} | {article['summary'][:chars]}"
         )
+    contents = "\n".join(lines)
+
+    for model in (models or MODELS):
+        # an overload lasts minutes, so once a model has refused, skip it for the rest
+        # of the run instead of paying a request per batch to hear the same answer
+        if model in exhausted or model in overloaded:
+            continue
+        result = _try_model(model, contents, len(batch))
+        if result == "next":
+            continue
+        if result is not None:
+            last_model = model
+        return result
+
+    if len(exhausted) == len(MODELS):
+        out_of_quota = True
+        print("Every model is out of requests for today. The free tier resets at "
+              "midnight US Pacific.")
+    else:
+        print(f"Every model refused this batch. Leaving these {len(batch)} articles "
+              f"for a later run.")
+    return None
+
+
+def _try_model(model, contents, size):
+    """Returns the scores, None to give up on the batch, or "next" to try another model."""
+    global requests_made
 
     for attempt in range(MAX_ATTEMPTS):
         if requests_made >= REQUEST_BUDGET:
             print(f"Stopping: this run has already used its budget of {REQUEST_BUDGET} "
-                  f"requests, and the free tier only allows 20 a day.")
+                  f"requests.")
             return None
 
         try:
             requests_made += 1
             response = client.models.generate_content(
-                model=MODEL,
-                contents="\n".join(lines),
+                model=model,
+                contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
                     response_mime_type="application/json",
@@ -158,22 +222,21 @@ def score_batch(batch, chars):
             )
             return json.loads(response.text)
         except Exception as e:
-            # retrying this one only burns more of today's allowance for nothing
+            # this model's allowance is spent, but the others each have their own
             if is_daily_quota(e):
-                out_of_quota = True
-                print("Out of Gemini requests for today. The free tier allows 20 a day and "
-                      "resets at midnight Pacific.")
-                return None
+                exhausted.add(model)
+                print(f"{model} is out of requests for today, trying the next model.")
+                return "next"
             code = getattr(e, "code", None)
-            # A 503 means Gemini is shedding load, which tends to last minutes rather
-            # than seconds. Retrying spends the day's allowance on a wall, so give this
-            # batch up: its articles stay unscored and the next run will pick them up.
-            if code == 503:
-                print(f"Gemini is refusing requests right now (503). Leaving these "
-                      f"{len(batch)} articles for a later run.")
-                return None
+            # Shedding load tends to last minutes, so retrying the same model just
+            # spends requests on a wall. A lighter model is usually free.
+            if code in (503, 404):
+                overloaded.add(model)
+                reason = "is overloaded (503)" if code == 503 else "is not available (404)"
+                print(f"{model} {reason}, using the next model for the rest of this run.")
+                return "next"
             if code not in RETRY_CODES or attempt == MAX_ATTEMPTS - 1:
-                print(f"Batch failed: {e}")
+                print(f"Batch failed on {model}: {e}")
                 return None
             wait = 10 * 2 ** attempt
             print(f"Error {e.code}, retrying in {wait}s (attempt {attempt + 2} of {MAX_ATTEMPTS}; "
@@ -200,7 +263,12 @@ previous = {}
 if os.path.exists(paths.data("scored.json")):
     try:
         with open(paths.data("scored.json")) as f:
-            previous = {a["url"]: a for a in json.load(f) if "significance" in a}
+            loaded = [a for a in json.load(f) if "significance" in a]
+        previous = {a["url"]: a for a in loaded if a.get("prompt_version") == PROMPT_VERSION}
+        stale = len(loaded) - len(previous)
+        if stale:
+            print(f"{stale} articles were scored under an earlier version of the prompt, "
+                  f"so they will be scored again.")
     except (ValueError, KeyError, TypeError):
         print("scored.json could not be read, so everything will be scored afresh.")
 
@@ -239,6 +307,8 @@ for start in range(0, len(todo), BATCH_SIZE):
         best["significance"] = best_item["score"]
         best["significance_reason"] = best_item["reason"]
         best["category"] = best_item["category"]
+        best["scored_by"] = last_model
+        best["prompt_version"] = PROMPT_VERSION
         for _, other in members:
             if other is not best:
                 best["coverage_count"] += other["coverage_count"]
@@ -251,6 +321,38 @@ for start in range(0, len(todo), BATCH_SIZE):
 
 if not scored:
     raise SystemExit("Nothing was scored, so scored.json was left untouched.")
+
+# Scores from a fallback model are provisional. The lighter models are much worse at
+# the categorisation rules: they filed a Navy contract as fiscal policy and a share
+# price move as geopolitics, which the full model does not. So whenever the primary is
+# free, re-score those with it. Only the primary is tried here: falling back would just
+# reproduce the provisional score, and the briefing already has that to show.
+PRIMARY = MODELS[0]
+provisional = [a for a in scored if a.get("scored_by") and a["scored_by"] != PRIMARY]
+if provisional and PRIMARY not in overloaded and PRIMARY not in exhausted:
+    print(f"{len(provisional)} articles have provisional scores from a fallback model. "
+          f"Trying {PRIMARY} for them...")
+    upgraded = 0
+    for start in range(0, len(provisional), BATCH_SIZE):
+        batch = provisional[start:start + BATCH_SIZE]
+        scores = score_batch(batch, TITLE_STAGE_CHARS, models=[PRIMARY])
+        if not scores:
+            print("The primary model is busy again, so the rest keep their provisional "
+                  "scores until a later run.")
+            break
+        for item in scores:
+            if 0 <= item["id"] < len(batch):
+                article = batch[item["id"]]
+                article["significance"] = item["score"]
+                article["significance_reason"] = item["reason"]
+                article["category"] = item["category"]
+                article["scored_by"] = PRIMARY
+                article["prompt_version"] = PROMPT_VERSION
+                upgraded += 1
+    print(f"Upgraded {upgraded} of {len(provisional)} provisional scores.")
+elif provisional:
+    print(f"{len(provisional)} articles have provisional scores from a fallback model. "
+          f"They will be re-scored when {PRIMARY} is free.")
 
 # The second pass is an improvement, not a requirement, so skip it rather than spend
 # requests we may not have. What was scored above is still saved either way. Only
@@ -283,6 +385,8 @@ if rescore:
                 article["significance"] = item["score"]
                 article["significance_reason"] = item["reason"]
                 article["category"] = item["category"]
+                article["scored_by"] = last_model
+                article["prompt_version"] = PROMPT_VERSION
 
 
 scored.sort(key=lambda a: (a["significance"], a["coverage_count"]), reverse=True)
