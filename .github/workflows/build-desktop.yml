@@ -81,6 +81,13 @@ jobs:
           fi
           echo "Refused to fetch without a key, and wrote nothing. Correct."
 
+          # The RSS feeds need no key, so this is the one step CI can run for real: it
+          # proves the packaged app can make network requests and parse feeds.
+          "$APP" --step fetch_rss
+          test -s "$MIMIR_DATA_DIR/rss_results.json" \
+            || { echo "FAIL: fetching the RSS feeds produced nothing"; exit 1; }
+          echo "Fetched the RSS feeds from inside the packaged app."
+
       - name: Package
         shell: bash
         run: |

@@ -1,13 +1,20 @@
+import datetime
 import difflib
 import json
 import os
 import re
 from urllib.parse import urlparse
 
+import categories
 import paths
 
-# Sources that only ever produce algorithmic single-stock filler or SEO content farming
-BLOCKED_SOURCES = {"MarketBeat", "CBIZ", "AD HOC NEWS", "Kalkine Media"}
+# Sources that only ever produce algorithmic single-stock filler or SEO content farming.
+# Each was checked against a day of scored output: none produced a single useful story.
+BLOCKED_SOURCES = {
+    "MarketBeat", "CBIZ", "AD HOC NEWS", "Kalkine Media",
+    "Stock Titan", "Insider Monkey", "Pluang", "scanx.trade",
+    "Simply Wall St", "Simply Wall Street",
+}
 BLOCKED_TITLE_PATTERNS = [
     re.compile(r"\b[\d,]+ shares\b", re.I),
     re.compile(r"\b(takes?|buys?|acquires?|sells?)\b.*\b(position|stake|shares)\b", re.I),
@@ -46,15 +53,25 @@ ALLOWED_GEOPOLITICS_DOMAINS = {
 }
 SIMILARITY_THRESHOLD = 0.8
 
-with open(paths.data("results.json")) as f:
-    results = json.load(f)
+# A daily briefing: anything older than this is not today's news. It also means a source
+# whose fetch failed cannot leak its last, stale results into a fresh briefing.
+MAX_AGE_HOURS = 36
 
-for extra_file in ("newsapi_results.json",):
-    if os.path.exists(paths.data(extra_file)):
-        with open(paths.data(extra_file)) as f:
-            extra = json.load(f)
-        for topic, articles in extra.items():
+# Read in this order, because when the same story arrives from several places the first
+# copy is the one kept: RSS is fresh and from chosen outlets, NewsAPI's free tier runs a
+# day late, and Alpha Vantage is mostly stock filler. Every source is optional.
+SOURCE_FILES = ["rss_results.json", "results.json", "newsapi_results.json"]
+
+results = {}
+for name in SOURCE_FILES:
+    if not os.path.exists(paths.data(name)):
+        continue
+    with open(paths.data(name)) as f:
+        for topic, articles in json.load(f).items():
             results.setdefault(topic, []).extend(articles)
+
+if not results:
+    raise SystemExit("No fetched news to filter. Run the fetch steps first.")
 
 unique = {}
 for topic, articles in results.items():
@@ -76,24 +93,47 @@ def get_domain(article):
     return netloc[4:] if netloc.startswith("www.") else netloc
 
 
+def age_hours(article, now):
+    """Hours since publication, or None when the date cannot be read."""
+    stamp = (article.get("time_published") or "").rstrip("Z")
+    try:
+        when = datetime.datetime.strptime(stamp[:15], "%Y%m%dT%H%M%S")
+    except ValueError:
+        return None
+    return (now - when.replace(tzinfo=datetime.timezone.utc)).total_seconds() / 3600
+
+
 def is_allowed_domain(domain):
     return any(domain == d or domain.endswith("." + d) for d in ALLOWED_GEOPOLITICS_DOMAINS)
 
 
+now = datetime.datetime.now(datetime.timezone.utc)
 kept = []
 kept_keys = []
-not_allowed = 0
-roundups = 0
+dropped = {"too old": 0, "blocked source": 0, "stock filler title": 0, "market roundup": 0,
+           "outlet not on allowlist": 0, "off topic": 0}
 for article in unique.values():
+    age = age_hours(article, now)
+    if age is not None and age > MAX_AGE_HOURS:
+        dropped["too old"] += 1
+        continue
     if article["source"] in BLOCKED_SOURCES:
+        dropped["blocked source"] += 1
         continue
     if any(p.search(article["title"]) for p in BLOCKED_TITLE_PATTERNS):
+        dropped["stock filler title"] += 1
         continue
     if any(p.search(article["title"]) for p in ROUNDUP_TITLE_PATTERNS):
-        roundups += 1
+        dropped["market roundup"] += 1
         continue
-    if article["topic"] == "geopolitics" and not is_allowed_domain(get_domain(article)):
-        not_allowed += 1
+    # RSS feeds are chosen by hand; only NewsAPI's open-ended geopolitics search needs this
+    if (article["topic"] == "geopolitics" and not article.get("trusted")
+            and not is_allowed_domain(get_domain(article))):
+        dropped["outlet not on allowlist"] += 1
+        continue
+    # cheap and generous: stops sport, celebrity and lifestyle stories costing a request
+    if not categories.is_relevant(article):
+        dropped["off topic"] += 1
         continue
 
     key = normalize_title(article["title"])
@@ -115,8 +155,9 @@ for article in unique.values():
 
 total = sum(len(articles) for articles in results.values())
 print(f"{total} fetched -> {len(unique)} after URL dedupe -> {len(kept)} after filters and title dedupe")
-print(f"{not_allowed} geopolitics articles dropped because their source is not on the allowlist")
-print(f"{roundups} recurring market roundups/previews dropped")
+for reason, count in dropped.items():
+    if count:
+        print(f"  {count:4} dropped: {reason}")
 multi = sum(1 for a in kept if a["coverage_count"] > 1)
 print(f"{multi} stories were covered by more than one outlet")
 

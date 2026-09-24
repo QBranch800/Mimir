@@ -9,6 +9,7 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel
 
+import categories
 import paths
 
 # override, so the key saved in the data directory always wins over one that
@@ -50,7 +51,11 @@ RETRY_CODES = {429}          # 503 is handled separately: it is not worth retryi
 # A clean run costs four: three batches for ~135 articles, plus the second pass. When
 # the first model is overloaded each batch costs one extra request to find a free one,
 # so this allows for that without letting a bad day run away with the allowance.
-REQUEST_BUDGET = 12
+REQUEST_BUDGET = 16
+# Gemini's refusals come and go within minutes. Before giving up on articles, and before
+# the finalist check, wait this long and give every model one more chance.
+SECOND_CHANCE_WAIT = 30
+VERIFY_WAIT = 20
 MIN_SCORE = 4
 TEXT_CANDIDATES = 20
 TITLE_STAGE_CHARS = 300
@@ -139,6 +144,50 @@ Give a one-sentence reason for each score. Return one entry per article, using t
 PROMPT_VERSION = hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()[:12]
 
 
+CATEGORY_KEYS = ["monetary_policy", "us_fiscal_policy", "us_macro_data", "geopolitics",
+                 "tech_and_ai"]
+
+# A second, much smaller request that checks only the stories the briefing will actually
+# show. The lighter models misfile stories when judging fifty at once, but get the same
+# stories right when judging a handful, so the check is cheap and catches what matters.
+VERIFY_PROMPT = """You check the finalists of a daily market briefing before anyone reads
+them. Each line gives an article and the category it was filed under. Say which category
+the article genuinely belongs to: usually the one it was filed under, sometimes another,
+often none.
+
+- monetary_policy: central banks setting interest rates, guidance, balance sheets or money
+  itself (the Fed, ECB, Bank of England, Bank of Japan and their peers). Commercial banks,
+  even building money-like products, are not monetary policy.
+- us_fiscal_policy: the US federal government's budget, taxes, spending and debt (Congress,
+  the Treasury, the White House budget). Not states, cities, utilities or fee schedules.
+- us_macro_data: US economic releases and what they show: CPI, jobs, GDP, PMI, retail sales.
+- geopolitics: conflicts, sanctions, elections, trade policy and diplomacy with economic or
+  market weight.
+- tech_and_ai: technology with economic weight: AI capability or infrastructure, chips and
+  their supply, large data centre or chip plant investment, tech regulation and antitrust.
+
+The answer is "none" when the article is really about one company (its shares, valuation,
+earnings, analyst ratings, contracts, products or prospects), even if it names a policy, a
+war or a data release as background. It is also "none" when the article only nearly fits.
+When unsure, say none: the briefing would rather show nothing in a category than something
+wrong.
+
+If two articles report the same event, set same_event_as on the later one to the id of the
+earlier one. Otherwise set it to -1.
+
+Give a one-sentence reason. Return one entry per article, using the id given."""
+
+VERIFY_VERSION = hashlib.sha256(VERIFY_PROMPT.encode()).hexdigest()[:12]
+FINALISTS_PER_CATEGORY = 3   # the leader plus two in reserve, in case the leader fails
+
+
+class Verdict(BaseModel):
+    id: int
+    category: str
+    same_event_as: int
+    reason: str
+
+
 class Score(BaseModel):
     id: int
     score: int
@@ -166,22 +215,25 @@ def score_batch(batch, chars, models=None):
     Pass models to restrict which are tried: upgrading a provisional score only makes
     sense with the primary, so falling back there would just redo the same work.
     """
-    global out_of_quota, last_model
-
     lines = []
     for i, article in enumerate(batch):
         lines.append(
             f"id {i} | {article['source']} | {article['coverage_count']} outlet(s) | "
             f"{article['title']} | {article['summary'][:chars]}"
         )
-    contents = "\n".join(lines)
+    return ask("\n".join(lines), len(batch), SYSTEM_PROMPT, list[Score], models)
+
+
+def ask(contents, size, system, schema, models=None):
+    """Send one request through the model chain. Returns the parsed reply, or None."""
+    global out_of_quota, last_model
 
     for model in (models or MODELS):
         # an overload lasts minutes, so once a model has refused, skip it for the rest
         # of the run instead of paying a request per batch to hear the same answer
         if model in exhausted or model in overloaded:
             continue
-        result = _try_model(model, contents, len(batch))
+        result = _try_model(model, contents, system, schema)
         if result == "next":
             continue
         if result is not None:
@@ -193,12 +245,12 @@ def score_batch(batch, chars, models=None):
         print("Every model is out of requests for today. The free tier resets at "
               "midnight US Pacific.")
     else:
-        print(f"Every model refused this batch. Leaving these {len(batch)} articles "
+        print(f"Every model refused this request. Leaving these {size} articles "
               f"for a later run.")
     return None
 
 
-def _try_model(model, contents, size):
+def _try_model(model, contents, system, schema):
     """Returns the scores, None to give up on the batch, or "next" to try another model."""
     global requests_made
 
@@ -214,9 +266,9 @@ def _try_model(model, contents, size):
                 model=model,
                 contents=contents,
                 config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
+                    system_instruction=system,
                     response_mime_type="application/json",
-                    response_schema=list[Score],
+                    response_schema=schema,
                     temperature=0,
                 ),
             )
@@ -284,17 +336,15 @@ if scored:
 if not todo:
     print("Nothing new to score.")
 
-# Stage 1: score from title (and summary where there is one)
-for start in range(0, len(todo), BATCH_SIZE):
-    batch = todo[start:start + BATCH_SIZE]
-    print(f"Scoring articles {start + 1}-{start + len(batch)} of {len(todo)} still to do...")
+# Gemini can only spot two reports of the same story when they sit in the same batch, so
+# put each topic's articles next to each other rather than in fetch order.
+todo.sort(key=lambda a: a.get("topic") or "")
 
+def score_and_record(batch):
+    """Score one batch and add the results to `scored`. Returns False if it was refused."""
     scores = score_batch(batch, TITLE_STAGE_CHARS)
     if scores is None:
-        if out_of_quota or requests_made >= REQUEST_BUDGET:
-            print("Stopping here. Run this again later to score the rest.")
-            break
-        continue
+        return False
 
     # articles about the same story share a story_id: keep only the best-scoring one
     stories = {}
@@ -315,9 +365,43 @@ for start in range(0, len(todo), BATCH_SIZE):
                 best["also_covered_by"] += [other["source"]] + other["also_covered_by"]
         best["also_covered_by"] = sorted(set(best["also_covered_by"]))
         scored.append(best)
+        # Record the ones folded into it. Leaving them out meant the next run saw them as
+        # new, scored them alone in a small batch without their partner, and put the
+        # duplicate straight back into the briefing.
+        for _, other in members:
+            if other is not best:
+                other.update({"significance": 0, "category": "none", "merged_into": best["url"],
+                              "significance_reason": "Same story as another article.",
+                              "scored_by": last_model, "prompt_version": PROMPT_VERSION})
+                scored.append(other)
 
+    return True
+
+
+# Stage 1: score from title (and summary where there is one)
+for start in range(0, len(todo), BATCH_SIZE):
+    batch = todo[start:start + BATCH_SIZE]
+    print(f"Scoring articles {start + 1}-{start + len(batch)} of {len(todo)} still to do...")
+    if not score_and_record(batch):
+        if out_of_quota or requests_made >= REQUEST_BUDGET:
+            print("Stopping here. Run this again later to score the rest.")
+            break
+        continue
     if start + BATCH_SIZE < len(todo):
         time.sleep(13)
+
+# One more try for whatever was refused. Overloads pass, and without this a busy spell
+# in the middle of a run left a third of the briefing for another day.
+done = {a["url"] for a in scored}
+leftover = [a for a in todo if a["url"] not in done]
+if leftover and not out_of_quota and requests_made < REQUEST_BUDGET:
+    print(f"{len(leftover)} articles were refused. Trying them once more in {SECOND_CHANCE_WAIT}s...")
+    time.sleep(SECOND_CHANCE_WAIT)
+    overloaded.clear()
+    for start in range(0, len(leftover), BATCH_SIZE):
+        if not score_and_record(leftover[start:start + BATCH_SIZE]):
+            print("Still refused. They will be tried the next time Mimir opens.")
+            break
 
 if not scored:
     raise SystemExit("Nothing was scored, so scored.json was left untouched.")
@@ -328,7 +412,8 @@ if not scored:
 # free, re-score those with it. Only the primary is tried here: falling back would just
 # reproduce the provisional score, and the briefing already has that to show.
 PRIMARY = MODELS[0]
-provisional = [a for a in scored if a.get("scored_by") and a["scored_by"] != PRIMARY]
+provisional = [a for a in scored if a.get("scored_by") and a["scored_by"] != PRIMARY
+               and not a.get("merged_into")]
 if provisional and PRIMARY not in overloaded and PRIMARY not in exhausted:
     print(f"{len(provisional)} articles have provisional scores from a fallback model. "
           f"Trying {PRIMARY} for them...")
@@ -359,7 +444,7 @@ elif provisional:
 # articles scored in this run are candidates; earlier ones have already had their turn.
 fresh = {a["url"] for a in scored if a["url"] not in previous}
 no_summary = [] if (out_of_quota or requests_made >= REQUEST_BUDGET) else \
-    [a for a in scored if not a["summary"] and a["url"] in fresh]
+    [a for a in scored if not a["summary"] and a["url"] in fresh and not a.get("merged_into")]
 if out_of_quota:
     print("Skipping the second scoring pass, since there are no requests left today.")
 candidates = sorted(no_summary, key=lambda a: a["significance"], reverse=True)[:TEXT_CANDIDATES]
@@ -389,7 +474,98 @@ if rescore:
                 article["prompt_version"] = PROMPT_VERSION
 
 
-scored.sort(key=lambda a: (a["significance"], a["coverage_count"]), reverse=True)
+def rank(article):
+    """Most significant first, then most widely covered, then the freshest."""
+    return (article["significance"], article.get("coverage_count") or 1,
+            article.get("time_published") or "")
+
+
+def set_aside(article, reason):
+    article["category_claimed"] = article.get("category")
+    article["category"] = "none"
+    article["significance"] = min(article["significance"], 2)
+    article["significance_reason"] = reason
+
+
+# Stage 3a: a free check. Monetary and fiscal stories almost always use their category's
+# own vocabulary, so a story filed there that never does is a misfile.
+guarded = 0
+for article in scored:
+    category = article.get("category") or "none"
+    if category != "none" and not article.get("merged_into") and not categories.fits(article, category):
+        set_aside(article, f"Filed under {category} without ever mentioning it.")
+        guarded += 1
+if guarded:
+    print(f"The category check set aside {guarded} articles filed under a category they never mention.")
+
+
+# Stage 3b: check the finalists, the few stories the briefing will actually show.
+def finalists():
+    picked = []
+    for category in CATEGORY_KEYS:
+        pool = sorted((a for a in scored if a.get("category") == category
+                       and a["significance"] >= MIN_SCORE and not a.get("merged_into")),
+                      key=rank, reverse=True)[:FINALISTS_PER_CATEGORY]
+        picked += [a for a in pool if not (a.get("verify_version") == VERIFY_VERSION
+                                           and a.get("verified_category") == category)]
+    return picked
+
+
+# This small request matters more than any other: it decides what is actually shown. A
+# model skipped earlier for refusing a batch of fifty may well take a request this small.
+if overloaded and finalists():
+    time.sleep(VERIFY_WAIT)
+    overloaded.clear()
+
+for _ in range(2):           # a second round checks the reserves if leaders were set aside
+    batch = finalists()
+    if not batch or out_of_quota or requests_made >= REQUEST_BUDGET:
+        break
+    print(f"Checking {len(batch)} finalists...")
+    lines = [f"id {i} | filed under {a['category']} | {a['source']} | {a['title']} | "
+             f"{a['summary'][:400]}" for i, a in enumerate(batch)]
+    verdicts = ask("\n".join(lines), len(batch), VERIFY_PROMPT, list[Verdict])
+    if not verdicts:
+        print("Could not check the finalists this time; they are shown unchecked.")
+        break
+
+    by_id = {v["id"]: v for v in verdicts if 0 <= v["id"] < len(batch)}
+    moved = removed = 0
+    for i, article in enumerate(batch):
+        verdict = by_id.get(i)
+        if not verdict:
+            continue
+        filed, actual = article["category"], verdict["category"]
+        article["verify_reason"] = verdict["reason"]
+        if actual == filed:
+            pass
+        elif actual in CATEGORY_KEYS and categories.fits(article, actual):
+            article["category_claimed"] = filed
+            article["category"] = actual
+            moved += 1
+        else:
+            set_aside(article, verdict["reason"])
+            removed += 1
+        article["verify_version"] = VERIFY_VERSION
+        article["verified_category"] = article["category"]
+
+    # the same event leading two categories would fill two of five slots with one story
+    for i, article in enumerate(batch):
+        j = by_id.get(i, {}).get("same_event_as", -1)
+        if not 0 <= j < len(batch) or j == i:
+            continue
+        other = batch[j]
+        if "none" not in (article["category"], other["category"]) and article["category"] != other["category"]:
+            weaker, stronger = sorted((article, other), key=rank)
+            set_aside(weaker, "Same event as the lead story in another category.")
+            weaker["duplicate_of"] = stronger["url"]
+            removed += 1
+
+    print(f"Checked {len(batch)}: {len(batch) - moved - removed} confirmed, {moved} moved to "
+          f"a better category, {removed} set aside.")
+
+
+scored.sort(key=rank, reverse=True)
 briefing = [a for a in scored if a["significance"] >= MIN_SCORE]
 
 with open(paths.data("scored.json"), "w") as f:

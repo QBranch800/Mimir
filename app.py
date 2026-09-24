@@ -8,6 +8,7 @@ keys endpoint writes to .env, so this is not something to expose to a network.
 """
 
 import datetime
+import json
 import os
 import subprocess
 import sys
@@ -98,13 +99,19 @@ def write_env(updates):
     os.chmod(ENV_PATH, 0o600)
 
 
-def pipeline_worker():
-    steps = [
-        ("fetch_news.py", "Alpha Vantage headlines"),
-        ("fetch_newsapi.py", "NewsAPI geopolitics"),
-        ("filter_news.py", "Filtering and deduping"),
-        ("score_news.py", "Scoring with Gemini"),
-    ]
+FULL_RUN = [
+    ("fetch_rss.py", "News feeds"),
+    ("fetch_news.py", "Alpha Vantage headlines"),
+    ("fetch_newsapi.py", "NewsAPI geopolitics"),
+    ("filter_news.py", "Filtering and deduping"),
+    ("score_news.py", "Scoring with Gemini"),
+]
+# finishing a run cut short today: scoring picks up only what is missing, and fetching
+# again would spend the news sources' allowances for nothing
+FINISH_RUN = [("score_news.py", "Scoring with Gemini")]
+
+
+def pipeline_worker(steps=FULL_RUN):
     ok = True
     try:
         for script, label in steps:
@@ -154,10 +161,14 @@ def _remember_outcome(ok):
     freshness.record_result(state, now, ok, run_state["hit_quota"])
     freshness.save(enabled, state)
     # so the page says how things ended up rather than still saying "refreshing"
-    _, refresh_note = freshness.needs_refresh(True, state, _data_mtime(), now)
+    left = _unfinished()
+    action, refresh_note = freshness.needs_refresh(True, state, _data_mtime(), now, left)
+    if action == "finish":
+        refresh_note = (f"{left} articles could not be scored this time. Opening Mimir again "
+                        f"will try them.")
 
 
-def start_pipeline(trigger):
+def start_pipeline(trigger, steps=FULL_RUN):
     """Begin a run unless one is already going. Returns True if it started."""
     with run_lock:
         if run_state["running"]:
@@ -167,7 +178,7 @@ def start_pipeline(trigger):
             "finished": None, "ok": None, "log": [], "trigger": trigger,
             "hit_quota": False,
         })
-    threading.Thread(target=pipeline_worker, daemon=True).start()
+    threading.Thread(target=pipeline_worker, args=(steps,), daemon=True).start()
     return True
 
 
@@ -180,12 +191,26 @@ def refresh_on_open():
     global refresh_note
     try:
         enabled, state = freshness.load()
-        due, refresh_note = freshness.needs_refresh(
-            enabled, state, _data_mtime(), datetime.datetime.now().astimezone())
-        if due:
+        action, refresh_note = freshness.needs_refresh(
+            enabled, state, _data_mtime(), datetime.datetime.now().astimezone(), _unfinished())
+        if action == "full":
             start_pipeline("open")
+        elif action == "finish":
+            start_pipeline("open", FINISH_RUN)
     except Exception as exc:                       # noqa: BLE001 - shown on the page
         refresh_note = f"Could not check the briefing: {exc}"
+
+
+def _unfinished():
+    """How many of the latest fetched articles still have no score."""
+    try:
+        with open(paths.data("filtered.json")) as f:
+            fetched = {a["url"] for a in json.load(f)}
+        with open(paths.data("scored.json")) as f:
+            scored = {a["url"] for a in json.load(f)}
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0
+    return len(fetched - scored)
 
 
 def _data_mtime():

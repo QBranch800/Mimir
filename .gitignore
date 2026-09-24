@@ -13,3 +13,4 @@ dist/
 build/
 *.spec
 run.log
+rss_results.json

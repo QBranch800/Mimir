@@ -375,7 +375,8 @@ function pool() {
     const best = articles
       .filter(a => a.significance >= settings.minScore && categoryOf(a) === c.key)
       .sort((x, y) =>
-        y.significance - x.significance || (y.coverage_count || 0) - (x.coverage_count || 0))[0];
+        y.significance - x.significance || (y.coverage_count || 0) - (x.coverage_count || 0)
+        || (y.time_published || "").localeCompare(x.time_published || ""))[0];
     if (best) lead.push(best);
   }
   return lead;
@@ -836,7 +837,8 @@ async function loadArticles() {
     }
   }
   articles.sort((a, b) =>
-    b.significance - a.significance || (b.coverage_count || 0) - (a.coverage_count || 0));
+    b.significance - a.significance || (b.coverage_count || 0) - (a.coverage_count || 0)
+    || (b.time_published || "").localeCompare(a.time_published || ""));
   return true;
 }
 
