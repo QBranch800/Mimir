@@ -70,11 +70,14 @@ Score an article's significance only in relation to these:
    economic releases.
 4. Geopolitics: events with material economic or market relevance, such as conflicts,
    sanctions, elections, trade policy, or major diplomatic developments.
-5. Tech and AI: technology developments with material economic or market relevance, such as
-   major AI capability or infrastructure announcements, semiconductor capacity and supply,
-   large capital investment in data centres or fabrication, and technology regulation or
-   antitrust. Product launches, app updates, gadget reviews, and routine single-company
-   earnings or share price moves do not belong here.
+5. Tech and AI: major moves by the companies that shape AI and computing: the big AI labs
+   (OpenAI, Anthropic, Google DeepMind, Meta, xAI and their peers), the hyperscalers and
+   cloud giants (Microsoft, Amazon, Google, Oracle), and the chipmakers (Nvidia, TSMC, AMD,
+   Intel, Broadcom, ASML). That means new frontier models, very large compute, chip or data
+   centre deals, chip capacity and supply, and serious AI safety or security incidents; plus
+   technology regulation, export controls and antitrust. Stock picks, dividends, share price
+   moves, analyst ratings, routine earnings, and minor product or app updates do not belong
+   here.
 
 An article that does not fall into any of these five categories is noise for this briefing,
 whatever else it is about, and should score 1-2 even if it involves a well-known company or a
@@ -98,6 +101,15 @@ weighty the backdrop it cites. For example:
 - "Why is X stock surging premarket?" is a share price move. It is always "none".
 The same story told the other way round does belong: "US and China agree agricultural
 concessions at summit" is geopolitics, because the agreement is the subject.
+
+Tech and AI is the exception to the one-company rule, because there a single company's move
+is often the news itself. A major move by one of the AI labs, hyperscalers, cloud giants or
+chipmakers named above belongs in tech_and_ai: "Anthropic signs $11.6 billion computing deal
+with Akamai", "OpenAI releases a new frontier model", "Rogue AI model breaks into a government
+website". If a headline leads with the share price but the cause is such a move, as in
+"Akamai shares jump 26% after $11.6 billion Anthropic deal", judge the move. Their share
+prices, valuations, dividends, analyst ratings and stock picks are still "none", as are
+smaller companies' products and contracts.
 
 Keep to the level each category names:
 - US fiscal policy means the US federal government: Congress, the Treasury, the White House
@@ -162,12 +174,18 @@ often none.
 - us_macro_data: US economic releases and what they show: CPI, jobs, GDP, PMI, retail sales.
 - geopolitics: conflicts, sanctions, elections, trade policy and diplomacy with economic or
   market weight.
-- tech_and_ai: technology with economic weight: AI capability or infrastructure, chips and
-  their supply, large data centre or chip plant investment, tech regulation and antitrust.
+- tech_and_ai: major moves by the big AI labs (OpenAI, Anthropic, Google DeepMind, Meta, xAI),
+  the hyperscalers and cloud giants (Microsoft, Amazon, Google, Oracle) and the chipmakers
+  (Nvidia, TSMC, AMD, Intel, Broadcom, ASML): new frontier models, very large compute, chip
+  or data centre deals, chip supply, serious AI safety or security incidents; plus tech
+  regulation, export controls and antitrust.
 
 The answer is "none" when the article is really about one company (its shares, valuation,
 earnings, analyst ratings, contracts, products or prospects), even if it names a policy, a
-war or a data release as background. It is also "none" when the article only nearly fits.
+war or a data release as background. The exception is tech_and_ai: a major move by one of
+the companies named there is the news itself, even when the headline leads with a share
+price. Their share prices, dividends and stock picks are still none. It is also "none" when
+the article only nearly fits.
 When unsure, say none: the briefing would rather show nothing in a category than something
 wrong.
 
@@ -446,8 +464,11 @@ elif provisional:
 # requests we may not have. What was scored above is still saved either way. Only
 # articles scored in this run are candidates; earlier ones have already had their turn.
 fresh = {a["url"] for a in scored if a["url"] not in previous}
+# Google News links go through a redirect page with no article text on it, so those
+# articles have only their headline to go on.
 no_summary = [] if (out_of_quota or requests_made >= REQUEST_BUDGET) else \
-    [a for a in scored if not a["summary"] and a["url"] in fresh and not a.get("merged_into")]
+    [a for a in scored if not a["summary"] and a["url"] in fresh and not a.get("merged_into")
+     and not a["url"].startswith("https://news.google.com/")]
 if out_of_quota:
     print("Skipping the second scoring pass, since there are no requests left today.")
 candidates = sorted(no_summary, key=lambda a: a["significance"], reverse=True)[:TEXT_CANDIDATES]

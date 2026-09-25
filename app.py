@@ -38,7 +38,6 @@ def step_command(script):
 
 # env var -> label shown in the UI
 KEYS = {
-    "ALPHA_VANTAGE_API_KEY": "Alpha Vantage",
     "GEMINI_API_KEY": "Gemini",
 }
 
@@ -100,7 +99,7 @@ def write_env(updates):
 
 FULL_RUN = [
     ("fetch_rss.py", "Monetary policy feeds"),
-    ("fetch_news.py", "Alpha Vantage headlines"),
+    ("fetch_google.py", "Google News headlines"),
     ("fetch_gdelt.py", "GDELT geopolitics"),
     ("filter_news.py", "Filtering and deduping"),
     ("score_news.py", "Scoring with Gemini"),

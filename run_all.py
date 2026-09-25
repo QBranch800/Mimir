@@ -16,7 +16,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # (script, label, required)
 STEPS = [
     ("fetch_rss.py",     "Monetary policy feeds",     False),
-    ("fetch_news.py",    "Alpha Vantage headlines",   False),
+    ("fetch_google.py",  "Google News headlines",     False),
     ("fetch_gdelt.py",   "GDELT geopolitics",         False),
     ("filter_news.py",   "Filtering and deduping",    True),
     ("score_news.py",    "Scoring with Gemini",       True),

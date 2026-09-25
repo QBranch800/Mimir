@@ -46,6 +46,9 @@ BLOCKED_TITLE_PATTERNS = [
     re.compile(r"\bmarket chatter\b", re.I),
     # law firms advertising for class action plaintiffs
     re.compile(r"\binvestigating (allegations|claims)\b|\bclass action\b|\bshareholder (alert|rights)\b", re.I),
+    # photo captions, which read like news: "FILE PHOTO: ... on day two of a shutdown"
+    # is a stock image, and was scored as the day's top fiscal story from its headline
+    re.compile(r"^(file )?photos?\b|\bfile photo\b", re.I),
 ]
 
 # Recurring market roundups and previews. These are competing briefings, not discrete events,
@@ -64,7 +67,7 @@ SIMILARITY_THRESHOLD = 0.8
 
 # A daily briefing: anything older than this is not today's news. It also means a source
 # whose fetch failed cannot leak its last, stale results into a fresh briefing.
-MAX_AGE_HOURS = 36
+MAX_AGE_HOURS = 24
 
 # The most any category sends to Gemini. Five categories of ten is one request.
 MAX_PER_CATEGORY = 10
@@ -73,9 +76,22 @@ MAX_PER_CATEGORY = 10
 # is optional: if one fails, the run carries on with the others.
 SOURCE_FILES = {
     "rss_results.json": "rss",
-    "results.json": "alpha_vantage",
+    "google_results.json": "google",
     "gdelt_results.json": "gdelt",
 }
+
+# A macro story is a data release, and every outlet reports the same release on the same
+# day in its own words ("jobless claims near 57-year low", "claims slip to 197,000"), so
+# each release gets one slot. Without this, one day's jobless claims took six of ten.
+# The more specific names come first.
+MACRO_RELEASES = [re.compile(p, re.I) for p in (
+    r"jobless claims", r"payrolls|jobs report|unemployment rate", r"job openings|\bjolts\b",
+    r"\bcpi\b|consumer price", r"\bpce\b", r"\bgdp\b|gross domestic product",
+    r"\bism\b", r"\bpmi\b|purchasing managers", r"retail sales", r"new[- ]home sales",
+    r"existing[- ]home sales|pending[- ]home sales", r"housing starts|building permits",
+    r"durable goods", r"consumer (?:confidence|sentiment)", r"industrial production",
+    r"trade deficit",
+)]
 
 unique = {}
 total = 0
@@ -115,8 +131,8 @@ def age_hours(article, now):
 def category_for(article):
     """The category the story is plainly about, among those its source covers, or None.
 
-    The one it was fetched for is tried first, but an Alpha Vantage "fiscal" story that
-    is really a jobs report can still count as macro data.
+    The one it was fetched for is tried first, but a story found by a "fiscal" search
+    that is really a jobs report can still count as macro data.
     """
     options = categories.categories_of(article["feed"])
     options.sort(key=lambda c: c != article["topic"])
@@ -194,31 +210,40 @@ def outlet(source):
     return words[0] if words else source
 
 
+def release(article):
+    """Which macro data release a headline is about, or None."""
+    return next((i for i, p in enumerate(MACRO_RELEASES) if p.search(article["title"])), None)
+
+
 def pick(pool):
     """The category's biggest stories, one article each, at most MAX_PER_CATEGORY."""
     names = [rare_names(a) for a in pool]
+    releases = [release(a) if a["topic"] == "us_macro_data" else None for a in pool]
+
+    def same_story(i, j):
+        return len(names[i] & names[j]) >= 2 or (releases[i] is not None and releases[i] == releases[j])
+
     outlets = []
     for i, article in enumerate(pool):
         carried = {article["source"], *article["also_covered_by"]}
-        carried |= {pool[j]["source"] for j in range(len(pool))
-                    if j != i and len(names[i] & names[j]) >= 2}
+        carried |= {pool[j]["source"] for j in range(len(pool)) if j != i and same_story(i, j)}
         outlets.append(len({outlet(s) for s in carried}))
 
     # most outlets first; then GDELT's own measure of how widely it was reported; then newest
     order = sorted(range(len(pool)), key=lambda i: pool[i].get("time_published") or "", reverse=True)
     order.sort(key=lambda i: (-outlets[i], -(pool[i].get("gdelt_weight") or 0)))
 
-    chosen, chosen_names = [], []
+    chosen = []
     for i in order:
-        same = next((c for c, n in zip(chosen, chosen_names) if len(names[i] & n) >= 2), None)
-        if same:            # another outlet's take on a story already picked
-            same["coverage_count"] += pool[i]["coverage_count"]
-            same["also_covered_by"] = sorted({*same["also_covered_by"], pool[i]["source"]})
+        same = next((c for c in chosen if same_story(i, c)), None)
+        if same is not None:        # another outlet's take on a story already picked
+            kept_one = pool[same]
+            kept_one["coverage_count"] += pool[i]["coverage_count"]
+            kept_one["also_covered_by"] = sorted({*kept_one["also_covered_by"], pool[i]["source"]})
             continue
         if len(chosen) < MAX_PER_CATEGORY:
-            chosen.append(pool[i])
-            chosen_names.append(names[i])
-    return chosen
+            chosen.append(i)
+    return [pool[i] for i in chosen]
 
 
 picked = []

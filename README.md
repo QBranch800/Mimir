@@ -4,7 +4,7 @@ A daily briefing app that surfaces genuinely market-moving news across five fixe
 
 ## Status
 
-Early development, but usable end to end. Each category draws on one source: central bank and news desk RSS feeds for monetary policy, Alpha Vantage for US fiscal policy, US macro data and tech and AI, and GDELT for geopolitics. It strictly filters what they return down to at most ten stories per category, scores those for significance with Gemini, and shows the leading story in each as a briefing you read in the browser. A local server adds a refresh button and somewhere to keep your API keys, and the briefing refreshes itself when you open the app.
+Early development, but usable end to end. Each category draws on one source: central bank and news desk RSS feeds for monetary policy, Google News searches for US fiscal policy, US macro data and tech and AI, and GDELT for geopolitics. It strictly filters what they return down to at most ten stories per category, scores those for significance with Gemini, and shows the leading story in each as a briefing you read in the browser. A local server adds a refresh button and somewhere to keep your API key, and the briefing refreshes itself when you open the app.
 
 ## Setup
 
@@ -12,11 +12,8 @@ Early development, but usable end to end. Each category draws on one source: cen
 2. Create a virtual environment: `python3 -m venv venv`
 3. Activate it: `source venv/bin/activate`
 4. Install dependencies: `pip3 install -r requirements.txt`
-5. Copy `.env.example` to `.env` and add your own API keys, both free:
-   - Alpha Vantage, at alphavantage.co
-   - Gemini, at aistudio.google.com
-
-   The RSS feeds and GDELT need no key.
+5. Copy `.env.example` to `.env` and add your own Gemini API key, which is free, from
+   aistudio.google.com. The news sources need no key.
 
 ## Running it
 
@@ -26,26 +23,29 @@ With the virtual environment activated, run everything with one command:
 python3 run_all.py
 ```
 
-That runs the five steps below in order. If a news source is rate limited or missing a key the
-run carries on with the others, but it stops if filtering or scoring fails, since there would
+That runs the five steps below in order. If a news source cannot be reached the run carries
+on with the others, but it stops if filtering or scoring fails, since there would
 be no briefing to show. The individual steps can still be run on their own:
 
 1. `fetch_rss.py` fetches monetary policy from the Federal Reserve, the ECB and the Bank of
    England, and from the CNBC, Guardian, BBC and NPR news desks that report on central
    banks, into `rss_results.json`. It needs no API key, and its stories are minutes old.
-2. `fetch_news.py` fetches US fiscal policy, US macro data and tech and AI headlines from
-   Alpha Vantage for the last 36 hours into `results.json`. The free tier allows 25 requests
-   a day; a run uses three.
+2. `fetch_google.py` fetches US fiscal policy, US macro data and tech and AI headlines from
+   Google News into `google_results.json`, by searching for the words that define each
+   category ("government shutdown", "jobless claims", "OpenAI" and so on) over the last day.
+   It needs no key. Google gives headlines and outlets but no summaries, so these are
+   scored from their headlines.
 3. `fetch_gdelt.py` fetches geopolitics from GDELT's raw event files for the last 24 hours
    into `gdelt_results.json`. It keeps events between two countries, or involving a body such
    as the UN, reported by outlets on an allowlist, ranks the articles by how widely their
    events were reported, and reads the headline and summary of the top 20. It needs no key.
 4. `filter_news.py` merges all three into `filtered.json`, strictly, since every story it
-   passes on costs part of a Gemini request. It drops anything more than 36 hours old, known
+   passes on costs part of a Gemini request. It drops anything more than 24 hours old, known
    sources of stock filler, noisy titles and recurring market roundups, and any story that is
    not plainly about a category its source was chosen for, judged by that category's own
    words. It merges near-duplicate titles, then keeps at most ten stories per category, the
-   ones carried by the most outlets, so a whole day normally fits in one Gemini request.
+   ones carried by the most outlets, so a whole day normally fits in one Gemini request. A
+   macro data release gets one of those ten however many outlets report it.
 5. `score_news.py` asks Gemini to rate each article from 1 to 10 against five categories:
    monetary policy, US fiscal policy, US macroeconomic data, geopolitics, and tech and AI. It
    tags each article with the category it belongs to, fetches the page text for the top
@@ -78,8 +78,8 @@ python3 app.py
 ```
 
 then open `http://127.0.0.1:5111`. As well as the briefing, this gives you a Refresh button
-that runs the pipeline from the page, and somewhere to paste your API keys instead of editing
-`.env` by hand. It listens on localhost only: it can run the pipeline and write your keys, so
+that runs the pipeline from the page, and somewhere to paste your API key instead of editing
+`.env` by hand. It listens on localhost only: it can run the pipeline and write your key, so
 it is not something to expose to a network. Set `PORT` to use a different port. It avoids
 port 5000 because macOS answers that with its AirPlay receiver.
 
@@ -144,11 +144,11 @@ not inside the app, so updating or reinstalling never wipes them:
 Set `MIMIR_DATA_DIR` to put them somewhere else. Every run also writes `run.log` there, which
 is the first place to look if a refresh did not do what you expected.
 
-On first run the app asks for your API keys rather than showing an empty briefing.
+On first run the app asks for your API key rather than showing an empty briefing.
 
 ## Roadmap
 
-- [x] Fetch headlines from Alpha Vantage across multiple topics
+- [x] Fetch headlines by searching for each category's own words (Google News)
 - [x] Filter out duplicates and known noise (source blocklist and title patterns)
 - [x] AI-assisted significance scoring (Gemini API)
 - [x] Add geopolitical coverage from GDELT

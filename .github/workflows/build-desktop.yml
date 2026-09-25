@@ -67,19 +67,19 @@ jobs:
           # Checked by exit code and by what lands on disk rather than by console
           # output, because a windowed build may have no usable stdout.
           set +e
-          "$APP" --step fetch_news
+          "$APP" --step score_news
           code=$?
           set -e
 
           if [ "$code" -eq 0 ]; then
-            echo "FAIL: fetching succeeded with no key configured"
+            echo "FAIL: scoring succeeded with no key configured"
             exit 1
           fi
-          if [ -f "$MIMIR_DATA_DIR/results.json" ]; then
-            echo "FAIL: it wrote news data with no key configured"
+          if [ -f "$MIMIR_DATA_DIR/scored.json" ]; then
+            echo "FAIL: it wrote a briefing with no key configured"
             exit 1
           fi
-          echo "Refused to fetch without a key, and wrote nothing. Correct."
+          echo "Refused to score without a key, and wrote nothing. Correct."
 
           # The RSS feeds need no key, so this is the one step CI can run for real: it
           # proves the packaged app can make network requests and parse feeds.
@@ -144,5 +144,5 @@ jobs:
             - **Windows**: SmartScreen shows "Windows protected your PC". Choose More info,
               then Run anyway.
 
-            Mimir needs two free API keys, from alphavantage.co and aistudio.google.com.
-            It asks for them on first run, and keeps them on your machine.
+            Mimir needs one free API key, for Gemini, from aistudio.google.com. It asks for
+            it on first run, and keeps it on your machine.

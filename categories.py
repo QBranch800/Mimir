@@ -20,10 +20,10 @@ import re
 # category its source was chosen to cover.
 SOURCE = {
     "monetary_policy": "rss",
-    "us_fiscal_policy": "alpha_vantage",
-    "us_macro_data": "alpha_vantage",
+    "us_fiscal_policy": "google",
+    "us_macro_data": "google",
     "geopolitics": "gdelt",
-    "tech_and_ai": "alpha_vantage",
+    "tech_and_ai": "google",
 }
 
 # Core vocabulary: a story genuinely about the category almost always uses one of these.
@@ -73,16 +73,20 @@ CORE = {
         r"\bchina\b", r"\brussia\b", r"\bukraine\b", r"\biran\b", r"\bisrael\b",
         r"\bgaza\b", r"\btaiwan\b", r"north korea", r"middle east", r"opec", r"oil",
     ],
-    # AI, chips and their policy. Bare company names are left out: "Apple" or "Amazon"
-    # turn up in hundreds of share-price pieces a day, and a story that matters for this
-    # category nearly always names the AI, chips or rules it is about.
+    # AI, chips and their policy, and the companies that move them: the AI labs, the
+    # chipmakers, and the hyperscalers and cloud giants. Consumer brands are left out:
+    # "Apple" turns up in share-price pieces far more often than in AI news.
     "tech_and_ai": [
         r"\bai\b", r"artificial intelligence", r"\bchips?\b", r"chipmakers?",
-        r"semiconductors?", r"data cent(?:er|re)s?", r"\bnvidia\b", r"\btsmc\b",
-        r"\bopenai\b", r"\banthropic\b", r"\bdeepmind\b", r"\bchatgpt\b", r"\bllms?\b",
-        r"language models?", r"export controls?", r"antitrust", r"big tech",
+        r"semiconductors?", r"data cent(?:er|re)s?", r"\bllms?\b", r"language models?",
+        r"export controls?", r"antitrust", r"big tech", r"hyperscalers?",
         r"cyber ?attacks?", r"\bhack", r"quantum comput", r"\bcompute\b",
-        r"\bfoundr(?:y|ies)\b",
+        r"\bfoundr(?:y|ies)\b", r"\bcloud\b",
+        r"\bopenai\b", r"\banthropic\b", r"\bdeepmind\b", r"\bxai\b", r"\bchatgpt\b",
+        r"\bmistral\b", r"\bdeepseek\b",
+        r"\bnvidia\b", r"\btsmc\b", r"\bamd\b", r"\bintel\b", r"\bbroadcom\b", r"\basml\b",
+        r"\bmicron\b", r"\bmicrosoft\b", r"\balphabet\b", r"\bgoogle\b",
+        r"amazon web services", r"\baws\b", r"\boracle\b", r"\bcoreweave\b",
     ],
 }
 

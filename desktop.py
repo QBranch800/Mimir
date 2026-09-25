@@ -23,7 +23,7 @@ def run_step(name):
         if getattr(sys, stream, None) is None:
             setattr(sys, stream, open(os.devnull, "w"))
 
-    allowed = {"fetch_rss", "fetch_news", "fetch_gdelt", "filter_news", "score_news"}
+    allowed = {"fetch_rss", "fetch_google", "fetch_gdelt", "filter_news", "score_news"}
     if name not in allowed:
         print(f"Unknown step: {name}")
         return 1

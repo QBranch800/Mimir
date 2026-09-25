@@ -16,7 +16,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SEP = ";" if os.name == "nt" else ":"        # PyInstaller's --add-data separator
 
 # Imported by name at runtime, so PyInstaller cannot see them by following imports.
-PIPELINE_STEPS = ["fetch_rss", "fetch_news", "fetch_gdelt", "filter_news", "score_news"]
+PIPELINE_STEPS = ["fetch_rss", "fetch_google", "fetch_gdelt", "filter_news", "score_news"]
 
 # Shipped alongside the code and only ever read.
 ASSETS = ["index.html", ("assets", "assets")]

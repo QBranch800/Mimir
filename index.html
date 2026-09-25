@@ -408,7 +408,7 @@ function renderSettings(host) {
     const g = settingsGroup("Refreshing and API keys",
       "Open Mimir through the local server to refresh the briefing and save your API " +
       "keys here. Run python3 app.py in the project folder, then go to " +
-      "http://127.0.0.1:5000.");
+      "http://127.0.0.1:5111.");
     host.append(g);
   }
 
@@ -872,9 +872,10 @@ function renderWelcome() {
     box.append(
       el("h2", null, "Welcome to Mimir"),
       el("p", null,
-        `Mimir needs ${missing.length === 1 ? "one more free API key" : "a few free API keys"} ` +
+        `Mimir needs ${missing.length === 1 ? "a free API key" : "a few free API keys"} ` +
         `before it can build your first briefing: ${missing.join(", ")}.`),
-      el("p", null, "Open Settings to paste them in. They are stored on this machine only."),
+      el("p", null, `Open Settings to paste ${missing.length === 1 ? "it" : "them"} in. ` +
+                    "Keys are stored on this machine only."),
     );
     const go = el("button", "primary", "Open Settings");
     go.onclick = () => { view = "settings"; render(); };
@@ -888,8 +889,8 @@ function renderWelcome() {
   } else {
     box.append(
       el("h2", null, "Ready when you are"),
-      el("p", null, "Your keys are saved. Build the first briefing now, or wait for the " +
-                    "daily refresh."),
+      el("p", null, "Your key is saved. Build the first briefing now, or it will build " +
+                    "itself the next time you open Mimir."),
     );
     const go = el("button", "primary", "Build it now");
     go.onclick = async () => {
