@@ -40,7 +40,6 @@ def step_command(script):
 KEYS = {
     "ALPHA_VANTAGE_API_KEY": "Alpha Vantage",
     "GEMINI_API_KEY": "Gemini",
-    "NEWSAPI_KEY": "NewsAPI",
 }
 
 app = Flask(__name__, static_folder=None)
@@ -100,9 +99,9 @@ def write_env(updates):
 
 
 FULL_RUN = [
-    ("fetch_rss.py", "News feeds"),
+    ("fetch_rss.py", "Monetary policy feeds"),
     ("fetch_news.py", "Alpha Vantage headlines"),
-    ("fetch_newsapi.py", "NewsAPI geopolitics"),
+    ("fetch_gdelt.py", "GDELT geopolitics"),
     ("filter_news.py", "Filtering and deduping"),
     ("score_news.py", "Scoring with Gemini"),
 ]

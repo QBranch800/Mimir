@@ -67,7 +67,7 @@ jobs:
           # Checked by exit code and by what lands on disk rather than by console
           # output, because a windowed build may have no usable stdout.
           set +e
-          "$APP" --step fetch_newsapi
+          "$APP" --step fetch_news
           code=$?
           set -e
 
@@ -75,7 +75,7 @@ jobs:
             echo "FAIL: fetching succeeded with no key configured"
             exit 1
           fi
-          if [ -f "$MIMIR_DATA_DIR/newsapi_results.json" ]; then
+          if [ -f "$MIMIR_DATA_DIR/results.json" ]; then
             echo "FAIL: it wrote news data with no key configured"
             exit 1
           fi
@@ -144,5 +144,5 @@ jobs:
             - **Windows**: SmartScreen shows "Windows protected your PC". Choose More info,
               then Run anyway.
 
-            Mimir needs three free API keys, from alphavantage.co, aistudio.google.com and
-            newsapi.org. It asks for them on first run, and keeps them on your machine.
+            Mimir needs two free API keys, from alphavantage.co and aistudio.google.com.
+            It asks for them on first run, and keeps them on your machine.

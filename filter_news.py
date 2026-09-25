@@ -1,9 +1,17 @@
+"""Cut the fetched news down to the few stories per category worth a Gemini request.
+
+Every story that reaches Gemini costs part of a request from a free allowance of 20 a
+day, so this is strict on purpose. A story has to be recent, not filler, and plainly
+about a category its source was chosen for. Then each category keeps only its
+MAX_PER_CATEGORY biggest stories, judged by how many outlets are carrying them.
+"""
+
+import collections
 import datetime
 import difflib
 import json
 import os
 import re
-from urllib.parse import urlparse
 
 import categories
 import paths
@@ -28,6 +36,16 @@ BLOCKED_TITLE_PATTERNS = [
     re.compile(r"\bstocks? (is |are )?(surg|soar|jump|plung|tumbl|ralli|rall|sink|spik|"
                r"crater|slump|skyrocket)\w*", re.I),
     re.compile(r"\b(pre-?market|after-?hours) (trading|move|gains?|losses?|today)\b", re.I),
+    # syndicated stock-picking, which aggregators republish under a dozen names, so it
+    # looks widely covered when it is one piece of filler
+    re.compile(r"\bwhich .{0,40}\bis (a|the) better buy\b", re.I),
+    re.compile(r"\bshares are (falling|rising|soaring|plunging|trading)\b", re.I),
+    re.compile(r"\b(opened|moved|closed) (up|down) by [\d.]+%", re.I),
+    re.compile(r"\bstock price, news, quote\b", re.I),
+    re.compile(r"\bzacks\b", re.I),
+    re.compile(r"\bmarket chatter\b", re.I),
+    # law firms advertising for class action plaintiffs
+    re.compile(r"\binvestigating (allegations|claims)\b|\bclass action\b|\bshareholder (alert|rights)\b", re.I),
 ]
 
 # Recurring market roundups and previews. These are competing briefings, not discrete events,
@@ -42,43 +60,39 @@ ROUNDUP_TITLE_PATTERNS = [
     re.compile(r"\b(opening|closing) bell\b", re.I),
 ]
 
-# Geopolitics articles are kept only from these outlets
-ALLOWED_GEOPOLITICS_DOMAINS = {
-    "reuters.com", "apnews.com", "bbc.com", "bbc.co.uk", "ft.com", "aljazeera.com",
-    "cnbc.com", "bloomberg.com", "wsj.com", "nytimes.com", "washingtonpost.com",
-    "theguardian.com", "economist.com", "politico.com", "axios.com", "cnn.com", "npr.org",
-    "dw.com", "france24.com", "scmp.com", "thehindu.com", "straitstimes.com",
-    "japantimes.co.jp", "channelnewsasia.com", "foreignpolicy.com", "marketwatch.com",
-    "barrons.com",
-}
 SIMILARITY_THRESHOLD = 0.8
 
 # A daily briefing: anything older than this is not today's news. It also means a source
 # whose fetch failed cannot leak its last, stale results into a fresh briefing.
 MAX_AGE_HOURS = 36
 
-# Read in this order, because when the same story arrives from several places the first
-# copy is the one kept: RSS is fresh and from chosen outlets, NewsAPI's free tier runs a
-# day late, and Alpha Vantage is mostly stock filler. Every source is optional.
-SOURCE_FILES = ["rss_results.json", "results.json", "newsapi_results.json"]
+# The most any category sends to Gemini. Five categories of ten is one request.
+MAX_PER_CATEGORY = 10
 
-results = {}
-for name in SOURCE_FILES:
+# The file each source writes, and the name categories.SOURCE knows it by. Every source
+# is optional: if one fails, the run carries on with the others.
+SOURCE_FILES = {
+    "rss_results.json": "rss",
+    "results.json": "alpha_vantage",
+    "gdelt_results.json": "gdelt",
+}
+
+unique = {}
+total = 0
+for name, feed in SOURCE_FILES.items():
     if not os.path.exists(paths.data(name)):
         continue
     with open(paths.data(name)) as f:
-        for topic, articles in json.load(f).items():
-            results.setdefault(topic, []).extend(articles)
+        for hint, articles in json.load(f).items():
+            for article in articles:
+                total += 1
+                if article["url"] not in unique:
+                    article["feed"] = feed
+                    article["topic"] = hint     # the category it was fetched for
+                    unique[article["url"]] = article
 
-if not results:
+if not unique:
     raise SystemExit("No fetched news to filter. Run the fetch steps first.")
-
-unique = {}
-for topic, articles in results.items():
-    for article in articles:
-        if article["url"] not in unique:
-            article["topic"] = topic
-            unique[article["url"]] = article
 
 
 def normalize_title(title):
@@ -86,11 +100,6 @@ def normalize_title(title):
     title = re.sub(r"\s+by (reuters|investing\.com|bloomberg)$", "", title)
     title = re.sub(r"[^a-z0-9 ]", "", title)
     return " ".join(title.split())
-
-
-def get_domain(article):
-    netloc = urlparse(article["url"]).netloc.lower()
-    return netloc[4:] if netloc.startswith("www.") else netloc
 
 
 def age_hours(article, now):
@@ -103,15 +112,27 @@ def age_hours(article, now):
     return (now - when.replace(tzinfo=datetime.timezone.utc)).total_seconds() / 3600
 
 
-def is_allowed_domain(domain):
-    return any(domain == d or domain.endswith("." + d) for d in ALLOWED_GEOPOLITICS_DOMAINS)
+def category_for(article):
+    """The category the story is plainly about, among those its source covers, or None.
+
+    The one it was fetched for is tried first, but an Alpha Vantage "fiscal" story that
+    is really a jobs report can still count as macro data.
+    """
+    options = categories.categories_of(article["feed"])
+    options.sort(key=lambda c: c != article["topic"])
+    return next((c for c in options if categories.on_topic(article, c)), None)
+
+
+def story_words(title):
+    """The capitalised words of a headline: the names that say which story it is."""
+    return {w.lower() for w in re.findall(r"\b[A-Z][A-Za-z0-9&-]{2,}", re.sub(r"['’]s\b", "", title))}
 
 
 now = datetime.datetime.now(datetime.timezone.utc)
 kept = []
 kept_keys = []
 dropped = {"too old": 0, "blocked source": 0, "stock filler title": 0, "market roundup": 0,
-           "outlet not on allowlist": 0, "off topic": 0}
+           "not plainly about its category": 0}
 for article in unique.values():
     age = age_hours(article, now)
     if age is not None and age > MAX_AGE_HOURS:
@@ -126,15 +147,11 @@ for article in unique.values():
     if any(p.search(article["title"]) for p in ROUNDUP_TITLE_PATTERNS):
         dropped["market roundup"] += 1
         continue
-    # RSS feeds are chosen by hand; only NewsAPI's open-ended geopolitics search needs this
-    if (article["topic"] == "geopolitics" and not article.get("trusted")
-            and not is_allowed_domain(get_domain(article))):
-        dropped["outlet not on allowlist"] += 1
+    category = category_for(article)
+    if not category:
+        dropped["not plainly about its category"] += 1
         continue
-    # cheap and generous: stops sport, celebrity and lifestyle stories costing a request
-    if not categories.is_relevant(article):
-        dropped["off topic"] += 1
-        continue
+    article["topic"] = category
 
     key = normalize_title(article["title"])
     match = None
@@ -153,13 +170,64 @@ for article in unique.values():
     kept.append(article)
     kept_keys.append(key)
 
-total = sum(len(articles) for articles in results.values())
 print(f"{total} fetched -> {len(unique)} after URL dedupe -> {len(kept)} after filters and title dedupe")
 for reason, count in dropped.items():
     if count:
         print(f"  {count:4} dropped: {reason}")
-multi = sum(1 for a in kept if a["coverage_count"] > 1)
-print(f"{multi} stories were covered by more than one outlet")
+
+# Which stories are the day's biggest, for free. Headlines about one story are worded
+# differently from outlet to outlet ("Akamai shares jump on $11.6B Anthropic deal",
+# "Anthropic strikes $12 billion AI computing deal with Akamai"), but they name the same
+# things. So two headlines are taken to be the same story when they share two names that
+# are rare in today's news. Names in every other headline ("Fed", "Stock") prove nothing.
+name_counts = collections.Counter(w for a in unique.values() for w in story_words(a["title"]))
+rare_limit = max(3, len(unique) * 0.02)
+
+
+def rare_names(article):
+    return {w for w in story_words(article["title"]) if name_counts[w] <= rare_limit}
+
+
+def outlet(source):
+    """One name per newsroom: Yahoo Finance UK and Yahoo! Finance Canada are one outlet."""
+    words = re.sub(r"^the\s+|[!.]com\b|!", "", source.lower()).split()
+    return words[0] if words else source
+
+
+def pick(pool):
+    """The category's biggest stories, one article each, at most MAX_PER_CATEGORY."""
+    names = [rare_names(a) for a in pool]
+    outlets = []
+    for i, article in enumerate(pool):
+        carried = {article["source"], *article["also_covered_by"]}
+        carried |= {pool[j]["source"] for j in range(len(pool))
+                    if j != i and len(names[i] & names[j]) >= 2}
+        outlets.append(len({outlet(s) for s in carried}))
+
+    # most outlets first; then GDELT's own measure of how widely it was reported; then newest
+    order = sorted(range(len(pool)), key=lambda i: pool[i].get("time_published") or "", reverse=True)
+    order.sort(key=lambda i: (-outlets[i], -(pool[i].get("gdelt_weight") or 0)))
+
+    chosen, chosen_names = [], []
+    for i in order:
+        same = next((c for c, n in zip(chosen, chosen_names) if len(names[i] & n) >= 2), None)
+        if same:            # another outlet's take on a story already picked
+            same["coverage_count"] += pool[i]["coverage_count"]
+            same["also_covered_by"] = sorted({*same["also_covered_by"], pool[i]["source"]})
+            continue
+        if len(chosen) < MAX_PER_CATEGORY:
+            chosen.append(pool[i])
+            chosen_names.append(names[i])
+    return chosen
+
+
+picked = []
+for category in categories.SOURCE:
+    pool = [a for a in kept if a["topic"] == category]
+    chosen = pick(pool)
+    picked += chosen
+    print(f"  {category:17} {len(pool):4} candidates -> {len(chosen)} sent for scoring")
+print(f"{len(picked)} articles go to Gemini")
 
 with open(paths.data("filtered.json"), "w") as f:
-    json.dump(kept, f, indent=2)
+    json.dump(picked, f, indent=2)

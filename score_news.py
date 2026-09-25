@@ -33,25 +33,24 @@ print(f"Using Gemini key from "
       f"(ends ...{_key[-4:]})")
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-# Tried in order. The full Flash model scores best, but it has refused batches with
-# 503 "high demand" on most days, when the lighter flash-lite models answered the same
-# 50 article batch in a few seconds. Falling back keeps a run from failing outright.
-# Gemini counts its free daily allowance per model, so each fallback also has its own
-# 20 requests rather than sharing the first model's.
-MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
+# Tried in order. gemini-3.5-flash-lite is the main model: it answered when the full
+# Flash models refused with 503 "high demand" all day, and judged the finalists
+# correctly. The older lite model is the fallback for when it is busy. Gemini counts its
+# free daily allowance per model, so the fallback has its own 20 requests.
+MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 # Not one big batch. A 134 article request was refused with 503 "high demand" over and
 # over while a 5 article one to the same model went through seconds later, so large
 # requests get shed when the service is busy, whatever the token limits allow. Batches
-# of this size have been served reliably. The cost is that Gemini can only merge
-# duplicate stories within a batch, so the same story in two batches stays twice.
+# of this size have been served reliably. The filter sends at most ten per category, so
+# a whole day normally fits in one.
 BATCH_SIZE = 50
 MAX_ATTEMPTS = 3
 RETRY_CODES = {429}          # 503 is handled separately: it is not worth retrying
 # Every call counts against its model's 20 a day, including ones the server fails.
-# A clean run costs four: three batches for ~135 articles, plus the second pass. When
-# the first model is overloaded each batch costs one extra request to find a free one,
-# so this allows for that without letting a bad day run away with the allowance.
-REQUEST_BUDGET = 16
+# A clean run costs two or three: one batch, a second pass for pages without a summary,
+# and the finalist check. This leaves room for a busy model without letting a bad day
+# run away with the allowance.
+REQUEST_BUDGET = 8
 # Gemini's refusals come and go within minutes. Before giving up on articles, and before
 # the finalist check, wait this long and give every model one more chance.
 SECOND_CHANCE_WAIT = 30
@@ -324,8 +323,13 @@ if os.path.exists(paths.data("scored.json")):
     except (ValueError, KeyError, TypeError):
         print("scored.json could not be read, so everything will be scored afresh.")
 
-current_urls = {a["url"] for a in articles}
-scored = [a for url, a in previous.items() if url in current_urls]
+current = {a["url"]: a for a in articles}
+scored = [a for url, a in previous.items() if url in current]
+# the score is kept, but where the story came from is today's: the category check
+# needs to know which source it is from, and older scores predate that being recorded
+for article in scored:
+    article["feed"] = current[article["url"]]["feed"]
+    article["topic"] = current[article["url"]]["topic"]
 todo = [a for a in articles if a["url"] not in previous]
 
 if scored:
@@ -406,11 +410,10 @@ if leftover and not out_of_quota and requests_made < REQUEST_BUDGET:
 if not scored:
     raise SystemExit("Nothing was scored, so scored.json was left untouched.")
 
-# Scores from a fallback model are provisional. The lighter models are much worse at
-# the categorisation rules: they filed a Navy contract as fiscal policy and a share
-# price move as geopolitics, which the full model does not. So whenever the primary is
-# free, re-score those with it. Only the primary is tried here: falling back would just
-# reproduce the provisional score, and the briefing already has that to show.
+# Scores from the fallback model are provisional, since an older model is worse at the
+# categorisation rules. So whenever the primary is free, re-score those with it. Only
+# the primary is tried here: falling back would just reproduce the provisional score,
+# and the briefing already has that to show.
 PRIMARY = MODELS[0]
 provisional = [a for a in scored if a.get("scored_by") and a["scored_by"] != PRIMARY
                and not a.get("merged_into")]
@@ -487,16 +490,20 @@ def set_aside(article, reason):
     article["significance_reason"] = reason
 
 
-# Stage 3a: a free check. Monetary and fiscal stories almost always use their category's
-# own vocabulary, so a story filed there that never does is a misfile.
+# Stage 3a: a free check. Each category takes stories from its own source only, and
+# monetary, fiscal and macro stories almost always use their category's own vocabulary,
+# so a story filed there that never does is a misfile.
 guarded = 0
 for article in scored:
     category = article.get("category") or "none"
     if category != "none" and not article.get("merged_into") and not categories.fits(article, category):
-        set_aside(article, f"Filed under {category} without ever mentioning it.")
+        if categories.SOURCE.get(category) != article.get("feed"):
+            set_aside(article, f"Filed under {category}, which takes its stories from another source.")
+        else:
+            set_aside(article, f"Filed under {category} without ever mentioning it.")
         guarded += 1
 if guarded:
-    print(f"The category check set aside {guarded} articles filed under a category they never mention.")
+    print(f"The category check set aside {guarded} articles that cannot stand in the category they were filed under.")
 
 
 # Stage 3b: check the finalists, the few stories the briefing will actually show.

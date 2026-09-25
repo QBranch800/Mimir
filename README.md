@@ -4,7 +4,7 @@ A daily briefing app that surfaces genuinely market-moving news across five fixe
 
 ## Status
 
-Early development, but usable end to end. It fetches headlines from Alpha Vantage and NewsAPI, removes duplicates and known noise, scores what is left for significance with Gemini across the five categories, and shows the leading story in each as a briefing you read in the browser. A local server adds a refresh button and somewhere to keep your API keys, and the briefing refreshes itself when you open the app.
+Early development, but usable end to end. Each category draws on one source: central bank and news desk RSS feeds for monetary policy, Alpha Vantage for US fiscal policy, US macro data and tech and AI, and GDELT for geopolitics. It strictly filters what they return down to at most ten stories per category, scores those for significance with Gemini, and shows the leading story in each as a briefing you read in the browser. A local server adds a refresh button and somewhere to keep your API keys, and the briefing refreshes itself when you open the app.
 
 ## Setup
 
@@ -12,10 +12,11 @@ Early development, but usable end to end. It fetches headlines from Alpha Vantag
 2. Create a virtual environment: `python3 -m venv venv`
 3. Activate it: `source venv/bin/activate`
 4. Install dependencies: `pip3 install -r requirements.txt`
-5. Copy `.env.example` to `.env` and add your own API keys, all free:
+5. Copy `.env.example` to `.env` and add your own API keys, both free:
    - Alpha Vantage, at alphavantage.co
    - Gemini, at aistudio.google.com
-   - NewsAPI, at newsapi.org
+
+   The RSS feeds and GDELT need no key.
 
 ## Running it
 
@@ -29,35 +30,37 @@ That runs the five steps below in order. If a news source is rate limited or mis
 run carries on with the others, but it stops if filtering or scoring fails, since there would
 be no briefing to show. The individual steps can still be run on their own:
 
-1. `fetch_rss.py` reads free RSS feeds from the Federal Reserve, the ECB, the Bank of England,
-   the Congressional Budget Office, and outlets such as the BBC, CNBC, the Guardian, NPR,
-   Politico, Al Jazeera and MarketWatch, into `rss_results.json`. It needs no API key, and its
-   stories are minutes old.
-2. `fetch_news.py` fetches headlines from Alpha Vantage into `results.json`. The free tier
-   allows about 25 requests a day, so avoid re-running it needlessly.
-3. `fetch_newsapi.py` fetches geopolitics headlines from NewsAPI for the last two days into
-   `newsapi_results.json`. The free tier allows 100 requests a day; a run uses four. Its free
-   tier also runs about a day late.
-4. `filter_news.py` merges all three into `filtered.json`, reading the RSS feeds first so that
-   when several sources carry the same story, the fresh copy from a chosen outlet is kept. It
-   drops anything more than 36 hours old, known sources of stock filler, noisy titles and
-   recurring market roundups, NewsAPI stories from outlets not on an allowlist, and stories
-   that touch none of the five categories. It merges near-duplicate titles while counting how
-   many outlets covered each story.
+1. `fetch_rss.py` fetches monetary policy from the Federal Reserve, the ECB and the Bank of
+   England, and from the CNBC, Guardian, BBC and NPR news desks that report on central
+   banks, into `rss_results.json`. It needs no API key, and its stories are minutes old.
+2. `fetch_news.py` fetches US fiscal policy, US macro data and tech and AI headlines from
+   Alpha Vantage for the last 36 hours into `results.json`. The free tier allows 25 requests
+   a day; a run uses three.
+3. `fetch_gdelt.py` fetches geopolitics from GDELT's raw event files for the last 24 hours
+   into `gdelt_results.json`. It keeps events between two countries, or involving a body such
+   as the UN, reported by outlets on an allowlist, ranks the articles by how widely their
+   events were reported, and reads the headline and summary of the top 20. It needs no key.
+4. `filter_news.py` merges all three into `filtered.json`, strictly, since every story it
+   passes on costs part of a Gemini request. It drops anything more than 36 hours old, known
+   sources of stock filler, noisy titles and recurring market roundups, and any story that is
+   not plainly about a category its source was chosen for, judged by that category's own
+   words. It merges near-duplicate titles, then keeps at most ten stories per category, the
+   ones carried by the most outlets, so a whole day normally fits in one Gemini request.
 5. `score_news.py` asks Gemini to rate each article from 1 to 10 against five categories:
    monetary policy, US fiscal policy, US macroeconomic data, geopolitics, and tech and AI. It
    tags each article with the category it belongs to, fetches the page text for the top
    articles that have no summary and scores those again, then checks its own work before
    writing `scored.json`:
-   - a story filed under monetary or fiscal policy that never uses that category's own
-     vocabulary is set aside as a misfile
+   - a story filed under a category whose source it did not come from, or under monetary
+     policy, fiscal policy or macro data without ever using that category's own vocabulary,
+     is set aside as a misfile
    - the few stories the briefing will actually show are checked again in one small request,
      which can confirm them, move them to a better category, or set them aside, and which
      keeps the same event from leading two categories at once
 
-   If the best Gemini model is overloaded it falls back to lighter ones, which have their own
-   free allowances. Their scores are marked provisional and scored again by the best model
-   when it is free.
+   It uses `gemini-3.5-flash-lite`. If that is overloaded it falls back to
+   `gemini-3.1-flash-lite`, which has its own free allowance. Those scores are marked
+   provisional and scored again by the main model when it is free.
 
    Scoring is incremental: an article that already has a score in `scored.json` is left alone,
    so only new articles cost anything. If Gemini refuses a batch, those articles simply stay
@@ -148,7 +151,8 @@ On first run the app asks for your API keys rather than showing an empty briefin
 - [x] Fetch headlines from Alpha Vantage across multiple topics
 - [x] Filter out duplicates and known noise (source blocklist and title patterns)
 - [x] AI-assisted significance scoring (Gemini API)
-- [x] Add geopolitical coverage from NewsAPI
+- [x] Add geopolitical coverage from GDELT
+- [x] One source per category, filtered to at most ten stories each before scoring
 - [x] Read the briefing as a page, one leading story per category
 - [x] Settings: theme, significance threshold, category choice and order
 - [x] Run the whole pipeline with one command

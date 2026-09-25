@@ -1,9 +1,9 @@
-"""Fetch headlines from free RSS feeds published by trusted outlets and central banks.
+"""Fetch monetary policy headlines from central banks and chosen news desks, over RSS.
 
-These need no API key, are updated within minutes rather than the day-late NewsAPI free
-tier, and come from outlets chosen by hand, so none of them is SEO filler. Each feed is
-tagged with the category it mostly covers; Gemini still decides where each story
-really belongs.
+This is the monetary policy source. The feeds need no API key, are updated within
+minutes, and come from outlets chosen by hand, so none of them is SEO filler. The
+central banks publish their own decisions and speeches; the news desks carry what
+those mean, which on 09-24 was where the day's best central bank stories were.
 """
 
 import datetime
@@ -19,34 +19,23 @@ import requests
 
 import paths
 
-# (source name, topic, url). A topic is only a hint about what a feed mostly carries.
+# (source name, url). Each was checked for how many central bank stories it carries;
+# general business and world feeds that carried none were dropped, and so was the Bank
+# of Japan's, which is mostly statistics notices. The news desks report its decisions.
 FEEDS = [
-    # monetary policy, from the central banks themselves and from CNBC's economy desk
-    ("Federal Reserve", "economy_monetary", "https://www.federalreserve.gov/feeds/press_monetary.xml"),
-    ("Federal Reserve", "economy_monetary", "https://www.federalreserve.gov/feeds/speeches.xml"),
-    ("European Central Bank", "economy_monetary", "https://www.ecb.europa.eu/rss/press.html"),
-    ("Bank of England", "economy_monetary", "https://www.bankofengland.co.uk/rss/news"),
-    # US fiscal policy
-    ("Congressional Budget Office", "economy_fiscal", "https://www.cbo.gov/publications/all/rss.xml"),
-    ("Politico", "economy_fiscal", "https://rss.politico.com/congress.xml"),
-    ("CNBC", "economy_fiscal", "https://www.cnbc.com/id/10000113/device/rss/rss.html"),
-    # the economy and macro data
-    ("CNBC", "economy_macro", "https://www.cnbc.com/id/20910258/device/rss/rss.html"),
-    ("MarketWatch", "economy_macro", "https://feeds.content.dowjones.io/public/rss/mw_topstories"),
-    ("NPR", "economy_macro", "https://feeds.npr.org/1017/rss.xml"),
-    ("BBC News", "economy_macro", "https://feeds.bbci.co.uk/news/business/rss.xml"),
-    ("The Guardian", "economy_macro", "https://www.theguardian.com/business/rss"),
-    # geopolitics
-    ("BBC News", "geopolitics", "https://feeds.bbci.co.uk/news/world/rss.xml"),
-    ("Al Jazeera", "geopolitics", "https://www.aljazeera.com/xml/rss/all.xml"),
-    ("The Guardian", "geopolitics", "https://www.theguardian.com/world/rss"),
-    ("NPR", "geopolitics", "https://feeds.npr.org/1004/rss.xml"),
-    ("CNBC", "geopolitics", "https://www.cnbc.com/id/100727362/device/rss/rss.html"),
-    # tech and AI
-    ("CNBC", "technology", "https://www.cnbc.com/id/19854910/device/rss/rss.html"),
-    ("BBC News", "technology", "https://feeds.bbci.co.uk/news/technology/rss.xml"),
-    ("The Guardian", "technology", "https://www.theguardian.com/technology/rss"),
+    # the central banks themselves
+    ("Federal Reserve", "https://www.federalreserve.gov/feeds/press_monetary.xml"),
+    ("Federal Reserve", "https://www.federalreserve.gov/feeds/speeches.xml"),
+    ("European Central Bank", "https://www.ecb.europa.eu/rss/press.html"),
+    ("Bank of England", "https://www.bankofengland.co.uk/rss/news"),
+    # news desks that report on them
+    ("CNBC", "https://www.cnbc.com/id/10000664/device/rss/rss.html"),          # finance
+    ("CNBC", "https://www.cnbc.com/id/20910258/device/rss/rss.html"),          # economy
+    ("The Guardian", "https://www.theguardian.com/business/economics/rss"),
+    ("BBC News", "https://feeds.bbci.co.uk/news/business/rss.xml"),
+    ("NPR", "https://feeds.npr.org/1017/rss.xml"),                              # economy
 ]
+TOPIC = "monetary_policy"
 
 # some sites refuse requests that do not look like a browser
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -108,7 +97,7 @@ def link(item):
     return node.get("href", "") if node is not None else ""
 
 
-def parse(source, topic, content):
+def parse(source, content):
     root = ET.fromstring(content)
     items = root.findall(".//item") or root.findall(".//" + ATOM + "entry")
     articles = []
@@ -124,25 +113,23 @@ def parse(source, topic, content):
             "time_published": published(item),
             "summary": clean(item.findtext("description") or item.findtext(ATOM + "summary"))[:600],
             "banner_image": image(item),
-            "trusted": True,          # chosen by hand, so the outlet allowlist does not apply
-            "topic": topic,
         })
     return articles
 
 
 results = {}
 worked = 0
-for source, topic, url in FEEDS:
+for source, url in FEEDS:
     try:
         response = requests.get(url, headers=HEADERS, timeout=15)
         response.raise_for_status()
-        articles = parse(source, topic, response.content)
+        articles = parse(source, response.content)
     except (requests.RequestException, ET.ParseError) as exc:
         print(f"Skipping {source} ({urlparse(url).netloc}): {type(exc).__name__}")
         continue
     worked += 1
-    results.setdefault(topic, []).extend(articles)
-    print(f"{source:28} {len(articles):3} items  ({topic})")
+    results.setdefault(TOPIC, []).extend(articles)
+    print(f"{source:28} {len(articles):3} items")
     time.sleep(0.5)
 
 if not worked:

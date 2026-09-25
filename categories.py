@@ -1,19 +1,30 @@
-"""The words each category is about, shared by the filter and the scorer.
+"""What each category is about and where its stories come from, shared by the filter
+and the scorer.
 
-They are used twice, at two different strictnesses:
+They are used twice:
 
-- before scoring, `is_relevant` keeps anything that plausibly touches any category.
-  It is deliberately generous: its only job is to stop sport, celebrity and lifestyle
-  stories from costing a Gemini request, and a story it wrongly keeps is still judged
-  by Gemini afterwards.
-- after scoring, `fits` checks a category Gemini assigned against that category's own
-  core words. It applies to monetary policy, US fiscal policy and US macro data, whose
-  vocabulary is specific enough to check reliably, and which is where the lighter model
-  kept filing company stories that merely mentioned a policy. The two US categories must
-  also be about the US, since a French budget or a Japanese PMI uses the same words.
+- before scoring, `on_topic` decides whether a story is plainly about one of its source's
+  categories. It is strict on purpose: every story it lets through costs part of a
+  Gemini request, and a story that never uses its category's own words is almost never
+  a good one for it.
+- after scoring, `fits` checks the category Gemini assigned: the story's source must be
+  the one chosen for that category, and for monetary policy, US fiscal policy and US
+  macro data it must use that category's words, which is where the lighter model kept
+  filing company stories that merely mentioned a policy. The two US categories must also
+  be about the US, since a French budget or a Japanese PMI uses the same words.
 """
 
 import re
+
+# Where each category's stories come from: one source each. A story only counts for a
+# category its source was chosen to cover.
+SOURCE = {
+    "monetary_policy": "rss",
+    "us_fiscal_policy": "alpha_vantage",
+    "us_macro_data": "alpha_vantage",
+    "geopolitics": "gdelt",
+    "tech_and_ai": "alpha_vantage",
+}
 
 # Core vocabulary: a story genuinely about the category almost always uses one of these.
 CORE = {
@@ -62,18 +73,20 @@ CORE = {
         r"\bchina\b", r"\brussia\b", r"\bukraine\b", r"\biran\b", r"\bisrael\b",
         r"\bgaza\b", r"\btaiwan\b", r"north korea", r"middle east", r"opec", r"oil",
     ],
+    # AI, chips and their policy. Bare company names are left out: "Apple" or "Amazon"
+    # turn up in hundreds of share-price pieces a day, and a story that matters for this
+    # category nearly always names the AI, chips or rules it is about.
     "tech_and_ai": [
-        r"\bai\b", r"artificial intelligence", r"\bchips?\b", r"semiconductors?",
-        r"data cent(?:er|re)s?", r"\bnvidia\b", r"\btsmc\b", r"\bopenai\b",
-        r"\banthropic\b", r"\bgoogle\b", r"\bmicrosoft\b", r"\bapple\b", r"\bmeta\b",
-        r"\bamazon\b", r"antitrust", r"export controls?", r"big tech", r"cloud",
-        r"cyber", r"quantum", r"\brobot", r"regulat", r"\bllm\b", r"model",
-        r"compute", r"fabs?\b", r"foundry",
+        r"\bai\b", r"artificial intelligence", r"\bchips?\b", r"chipmakers?",
+        r"semiconductors?", r"data cent(?:er|re)s?", r"\bnvidia\b", r"\btsmc\b",
+        r"\bopenai\b", r"\banthropic\b", r"\bdeepmind\b", r"\bchatgpt\b", r"\bllms?\b",
+        r"language models?", r"export controls?", r"antitrust", r"big tech",
+        r"cyber ?attacks?", r"\bhack", r"quantum comput", r"\bcompute\b",
+        r"\bfoundr(?:y|ies)\b",
     ],
 }
 
 _CORE_RE = {cat: re.compile("|".join(terms), re.I) for cat, terms in CORE.items()}
-_ANY_RE = re.compile("|".join(t for terms in CORE.values() for t in terms), re.I)
 
 # Only these categories are checked after scoring: their words are specific enough that a
 # genuine story nearly always uses one. Geopolitics and tech vocabulary is too broad to
@@ -103,18 +116,27 @@ def _text(article):
     return f"{article.get('title') or ''} {article.get('summary') or ''}"
 
 
-def is_relevant(article):
-    """Generous: could this story plausibly belong to any of the five categories?"""
-    return bool(_ANY_RE.search(_text(article)))
+def categories_of(feed):
+    """The categories a source was chosen to cover, in the briefing's order."""
+    return [category for category, source in SOURCE.items() if source == feed]
 
 
-def fits(article, category):
-    """Strict: does the story use the core vocabulary of the category it was given?
-
-    Categories outside GUARDED always pass, since their words cannot settle it.
-    """
-    if category not in GUARDED:
-        return True
+def on_topic(article, category):
+    """Before scoring: does the story use this category's core words, and for the two
+    US categories, is it about the US?"""
     if category in US_ONLY and not is_about_us(article):
         return False
     return bool(_CORE_RE[category].search(_text(article)))
+
+
+def fits(article, category):
+    """After scoring: can the story stand in the category Gemini gave it?
+
+    It must come from the source chosen for that category. Categories outside GUARDED
+    are not checked for words, since theirs are too broad to settle it.
+    """
+    if SOURCE.get(category) != article.get("feed"):
+        return False
+    if category not in GUARDED:
+        return True
+    return on_topic(article, category)
