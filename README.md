@@ -33,8 +33,10 @@ be no briefing to show. The individual steps can still be run on their own:
 2. `fetch_google.py` fetches US fiscal policy, US macro data and tech and AI headlines from
    Google News into `google_results.json`, by searching for the words that define each
    category ("government shutdown", "jobless claims", "OpenAI" and so on) over the last day.
-   It needs no key. Google gives headlines and outlets but no summaries, so these are
-   scored from their headlines.
+   It needs no key. Google gives only a headline, an outlet and a link to a Google redirect
+   page, so before scoring, `score_news.py` finds each new story's real address and reads its
+   summary and image from the outlet's own page. Paywalled sites often refuse; those stories
+   keep just their headline.
 3. `fetch_gdelt.py` fetches geopolitics from GDELT's raw event files for the last 24 hours
    into `gdelt_results.json`. It keeps events between two countries, or involving a body such
    as the UN, reported by outlets on an allowlist, ranks the articles by how widely their
@@ -70,6 +72,9 @@ be no briefing to show. The individual steps can still be run on their own:
    may not be midnight where you are.
 
 ## Reading the briefing
+
+A story whose source gives no image shows a picture for its category instead, from
+`assets/categories/`.
 
 The best way is to run the local server:
 

@@ -30,8 +30,8 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 import requests
-import trafilatura
 
+import pages
 import paths
 
 INDEX_URL = "http://data.gdeltproject.org/gdeltv2/lastupdate.txt"
@@ -58,9 +58,6 @@ IS_ROOT_EVENT = 25
 NUM_ARTICLES = 33
 DATE_ADDED = 59
 SOURCE_URL = 60
-
-HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-                         "(KHTML, like Gecko) Chrome/126 Safari/537.36"}
 
 
 def allowed_domain(url):
@@ -96,25 +93,18 @@ def title_from_url(url):
     return " ".join(words).capitalize() if len(words) >= 4 else ""
 
 
-def read_page(url):
-    """Headline, summary, image and outlet name from the page, or None."""
-    try:
-        response = requests.get(url, headers=HEADERS, timeout=15)
-        response.raise_for_status()
-        meta = trafilatura.extract_metadata(response.text, default_url=url)
-    except Exception:
-        meta = None
-    title = (meta.title if meta else "") or title_from_url(url)
+def describe(url):
+    """Headline, summary, image and outlet for an article, or None. A page that will not
+    open still gets a headline from its address, when the address has one."""
+    page = pages.read_page(url) or {}
+    title = page.get("title") or title_from_url(url)
     if not title:
         return None
-    summary = (meta.description if meta else "") or ""
-    if meta and not summary:
-        summary = trafilatura.extract(response.text) or ""
     return {
-        "title": " ".join(title.split()),
-        "summary": " ".join(summary.split())[:600],
-        "banner_image": (meta.image if meta else "") or "",
-        "source": (meta.sitename if meta else "") or allowed_domain(url),
+        "title": title,
+        "summary": page.get("summary", ""),
+        "banner_image": page.get("banner_image", ""),
+        "source": page.get("source") or allowed_domain(url),
     }
 
 
@@ -154,10 +144,10 @@ print(f"{events} events -> {len(ranked)} articles from allowlisted outlets about
 
 top = ranked[:PAGES_TO_READ]
 with ThreadPoolExecutor(6) as pool:
-    pages = list(pool.map(read_page, top))
+    described = list(pool.map(describe, top))
 
 articles, seen_titles = [], set()
-for url, page in zip(top, pages):
+for url, page in zip(top, described):
     if not page or page["title"].lower() in seen_titles:   # bbc.com and bbc.co.uk
         continue
     seen_titles.add(page["title"].lower())

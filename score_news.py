@@ -2,6 +2,8 @@ import hashlib
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
+
 import requests
 import trafilatura
 from dotenv import load_dotenv
@@ -10,6 +12,7 @@ from google.genai import types
 from pydantic import BaseModel
 
 import categories
+import pages
 import paths
 
 # override, so the key saved in the data directory always wins over one that
@@ -362,6 +365,32 @@ if not todo:
 # put each topic's articles next to each other rather than in fetch order.
 todo.sort(key=lambda a: a.get("topic") or "")
 
+
+def read_google_story(article):
+    """Find the outlet's own page behind a Google News link, and take its summary and
+    image. The Google link stays the story's identity, so its score is found again on
+    the next run; the outlet's address is kept alongside it for opening the article."""
+    real = pages.resolve_google_news(article["url"])
+    if not real:
+        return
+    article["article_url"] = real
+    page = pages.read_page(real)
+    if page:
+        article["summary"] = page["summary"]
+        article["banner_image"] = page["banner_image"]
+
+
+# Google gives only a headline. Reading the page first gives Gemini a summary to judge,
+# and the briefing an image. Only new stories: scored ones kept theirs from last time.
+google = [a for a in todo if pages.is_google_news(a["url"])]
+if google:
+    print(f"Reading the pages behind {len(google)} Google News stories...")
+    with ThreadPoolExecutor(8) as pool:
+        list(pool.map(read_google_story, google))
+    print(f"  found {sum(1 for a in google if a.get('article_url'))} of them; "
+          f"{sum(1 for a in google if a['summary'])} had a summary and "
+          f"{sum(1 for a in google if a['banner_image'])} an image")
+
 def score_and_record(batch):
     """Score one batch and add the results to `scored`. Returns False if it was refused."""
     scores = score_batch(batch, TITLE_STAGE_CHARS)
@@ -464,18 +493,18 @@ elif provisional:
 # requests we may not have. What was scored above is still saved either way. Only
 # articles scored in this run are candidates; earlier ones have already had their turn.
 fresh = {a["url"] for a in scored if a["url"] not in previous}
-# Google News links go through a redirect page with no article text on it, so those
-# articles have only their headline to go on.
+# A Google News story whose real address was not found has only a redirect page, with
+# no article text on it, so it has only its headline to go on.
 no_summary = [] if (out_of_quota or requests_made >= REQUEST_BUDGET) else \
     [a for a in scored if not a["summary"] and a["url"] in fresh and not a.get("merged_into")
-     and not a["url"].startswith("https://news.google.com/")]
+     and not pages.is_google_news(a.get("article_url") or a["url"])]
 if out_of_quota:
     print("Skipping the second scoring pass, since there are no requests left today.")
 candidates = sorted(no_summary, key=lambda a: a["significance"], reverse=True)[:TEXT_CANDIDATES]
 if candidates:
     print(f"Fetching page text for {len(candidates)} top articles that have no summary...")
 for article in candidates:
-    text = fetch_text(article["url"])
+    text = fetch_text(article.get("article_url") or article["url"])
     if text:
         article["summary"] = text
         article["text_fetched"] = True

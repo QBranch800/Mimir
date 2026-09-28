@@ -13,11 +13,12 @@ import json
 import re
 import time
 import xml.etree.ElementTree as ET
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import urlparse
 
 import requests
 
 import paths
+from pages import canonical_url
 
 # (source name, url). Each was checked for how many central bank stories it carries;
 # general business and world feeds that carried none were dropped, and so was the Bank
@@ -49,14 +50,6 @@ def clean(text):
     """Feed text often carries HTML tags and entities; the page wants plain text."""
     text = re.sub(r"<[^>]+>", " ", html.unescape(text or ""))
     return " ".join(text.split())
-
-
-def canonical_url(url):
-    """Drop tracking parameters, so the same article from two feeds counts once."""
-    parts = urlparse(url.strip())
-    query = [(k, v) for k, v in parse_qsl(parts.query)
-             if not k.lower().startswith(("utm_", "at_"))]
-    return urlunparse(parts._replace(query=urlencode(query), fragment=""))
 
 
 def published(item):

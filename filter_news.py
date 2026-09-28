@@ -39,6 +39,7 @@ BLOCKED_TITLE_PATTERNS = [
     # syndicated stock-picking, which aggregators republish under a dozen names, so it
     # looks widely covered when it is one piece of filler
     re.compile(r"\bwhich .{0,40}\bis (a|the) better buy\b", re.I),
+    re.compile(r"\b(stock|shares) an? (buy|sell)\b|\bshould you buy\b|\bstocks? to buy\b", re.I),
     re.compile(r"\bshares are (falling|rising|soaring|plunging|trading)\b", re.I),
     re.compile(r"\b(opened|moved|closed) (up|down) by [\d.]+%", re.I),
     re.compile(r"\bstock price, news, quote\b", re.I),

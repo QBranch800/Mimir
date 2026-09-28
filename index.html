@@ -288,6 +288,8 @@ const ALL_CATEGORIES = [
   { key: "tech_and_ai",      label: "Tech and AI" },
 ];
 const CATEGORY_LABEL = Object.fromEntries(ALL_CATEGORIES.map(c => [c.key, c.label]));
+// A stand-in picture per category, for stories whose source gives no image
+const categoryImage = key => CATEGORY_LABEL[key] ? `assets/categories/${key}.jpg` : null;
 
 // Articles scored before score_news.py tagged categories only carry the fetch topic,
 // which says where an article came from rather than what it is about.
@@ -741,12 +743,18 @@ function renderStories() {
     mid.append(meta);
     row.append(mid);
 
-    if (a.banner_image) {
+    // the story's own image, or its category's when it has none or it will not load
+    const fallback = categoryImage(cat.key);
+    const src = a.banner_image || fallback;
+    if (src) {
       const img = el("img", "thumb");
-      img.src = a.banner_image;
+      img.src = src;
       img.alt = "";
       img.loading = "lazy";
-      img.onerror = () => img.replaceWith(el("div", "thumb-empty"));
+      img.onerror = () => {
+        if (fallback && !img.dataset.fallback) { img.dataset.fallback = "1"; img.src = fallback; }
+        else img.replaceWith(el("div", "thumb-empty"));
+      };
       row.append(img);
     } else {
       row.append(el("div", "thumb-empty"));
@@ -789,7 +797,7 @@ function renderReader() {
     persistSaved(); render();
   };
   const open = el("a", "action", "Open original");
-  open.href = article.url; open.target = "_blank"; open.rel = "noopener noreferrer";
+  open.href = article.article_url || article.url; open.target = "_blank"; open.rel = "noopener noreferrer";
   meta.append(saveBtn, open);
   host.append(meta);
 
@@ -803,7 +811,7 @@ function renderReader() {
   const body = el("div", "body");
   for (const paragraph of rest) body.append(el("p", null, paragraph));
   const more = el("a", "readmore", `Read the full article at ${article.source} →`);
-  more.href = article.url; more.target = "_blank"; more.rel = "noopener noreferrer";
+  more.href = article.article_url || article.url; more.target = "_blank"; more.rel = "noopener noreferrer";
   body.append(more);
   host.append(body);
 }
