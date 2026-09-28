@@ -1,20 +1,3 @@
-"""Fetch US fiscal policy, US macro data and tech and AI headlines from Google News.
-
-This is the source for those three categories. Each is fetched by searching for the
-words that define it, rather than by a provider's own topic labels: Alpha Vantage's
-labels filed hundreds of stock-filler pieces a day under "fiscal" and "macro", and not
-one real fiscal or macro story. Searching returns the outlets that actually cover the
-subject, within minutes, and needs no key.
-
-Google gives a headline and outlet for each result, but no summary, and links that go
-through a Google redirect. The scorer finds the outlet's own page behind each new story
-and reads its summary and image there.
-
-Each category runs several short searches rather than one long one: Google ignored the
-"last day" limit on a search with a dozen alternatives in it, and returned stories
-from months ago.
-"""
-
 import datetime
 import email.utils
 import html
@@ -44,9 +27,9 @@ QUERIES = {
         '"PMI" OR "ISM" OR "durable goods" OR "housing starts" OR "home sales" US',
     ],
     "tech_and_ai": [
-        '"OpenAI" OR "Anthropic" OR "xAI" OR "DeepMind" OR "Meta AI"',                  # AI labs
-        '"Nvidia" OR "TSMC" OR "AMD" OR "Broadcom" OR "ASML" OR "AI chips"',              # chipmakers
-        '"Microsoft" OR "Amazon Web Services" OR "Google Cloud" OR "Oracle" AI',          # cloud giants
+        '"OpenAI" OR "Anthropic" OR "xAI" OR "DeepMind" OR "Meta AI"',
+        '"Nvidia" OR "TSMC" OR "AMD" OR "Broadcom" OR "ASML" OR "AI chips"',
+        '"Microsoft" OR "Amazon Web Services" OR "Google Cloud" OR "Oracle" AI',
         '"data center" OR "export controls" OR "AI regulation" OR "antitrust" tech',
     ],
 }
@@ -63,7 +46,6 @@ def search(query):
 def article(item):
     source = (item.findtext("source") or "").strip()
     title = html.unescape(item.findtext("title") or "").strip()
-    # Google appends the outlet to every headline: "Jobless claims fall - Reuters"
     if source and title.endswith(" - " + source):
         title = title[: -len(" - " + source)]
     try:

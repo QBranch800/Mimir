@@ -1,12 +1,3 @@
-"""A small local server for Mimir.
-
-It serves the same index.html you can open from the file system, and adds the two
-things a plain page cannot do: refresh the briefing, and save your API keys.
-
-It binds to 127.0.0.1 on purpose. The refresh endpoint runs the pipeline and the
-keys endpoint writes to .env, so this is not something to expose to a network.
-"""
-
 import datetime
 import json
 import os
@@ -27,17 +18,10 @@ PYTHON = sys.executable
 
 
 def step_command(script):
-    """How to run one pipeline step.
-
-    From a checkout that is just python on the script. Inside a packaged app there is
-    no python to call and no .py on disk, so the bundled executable re-runs itself with
-    --step and imports that module instead.
-    """
     if paths.FROZEN:
         return [sys.executable, "--step", script[:-3]]
     return [PYTHON, os.path.join(HERE, script)]
 
-# env var -> label shown in the UI
 KEYS = {
     "GEMINI_API_KEY": "Gemini",
 }
@@ -51,8 +35,8 @@ run_state = {
     "finished": None,
     "ok": None,
     "log": [],
-    "trigger": None,          # "you" or "open"
-    "hit_quota": False,       # every Gemini model was out of requests
+    "trigger": None,
+    "hit_quota": False,
 }
 run_lock = threading.Lock()
 refresh_note = "Starting up."
@@ -73,7 +57,6 @@ def read_env():
 
 
 def write_env(updates):
-    """Update or add keys in .env, leaving every other line as it was."""
     lines = []
     if os.path.exists(ENV_PATH):
         with open(ENV_PATH) as f:
@@ -105,8 +88,6 @@ FULL_RUN = [
     ("filter_news.py", "Filtering and deduping"),
     ("score_news.py", "Scoring with Gemini"),
 ]
-# finishing a run cut short today: scoring picks up only what is missing, and fetching
-# again would change which stories are candidates halfway through the day's scoring
 FINISH_RUN = [("score_news.py", "Scoring with Gemini")]
 
 
@@ -119,7 +100,6 @@ def pipeline_worker(steps=FULL_RUN):
                 step_command(script),
                 cwd=paths.DATA_DIR, capture_output=True, text=True, timeout=1800,
             )
-            # keep the whole thing, so a failed run can be looked at afterwards
             with open(paths.data("run.log"), "a") as log:
                 log.write(f"\n===== {label} ({time.strftime('%Y-%m-%d %H:%M:%S')}) "
                           f"rc={result.returncode}\n")
@@ -137,11 +117,10 @@ def pipeline_worker(steps=FULL_RUN):
                 "detail": tail[0][:200],
             })
             if result.returncode != 0:
-                # a news source failing is survivable; filtering and scoring are not
                 if script in ("filter_news.py", "score_news.py"):
                     ok = False
                     break
-    except Exception as exc:                       # noqa: BLE001 - surfaced to the page
+    except Exception as exc:
         run_state["log"].append({"step": "run", "ok": False, "detail": str(exc)[:200]})
         ok = False
     finally:
@@ -153,13 +132,11 @@ def pipeline_worker(steps=FULL_RUN):
 
 
 def _remember_outcome(ok):
-    """Record how a run went, so opening the app knows whether trying again is pointless."""
     global refresh_note
     now = datetime.datetime.now().astimezone()
     enabled, state = freshness.load()
     freshness.record_result(state, now, ok, run_state["hit_quota"])
     freshness.save(enabled, state)
-    # so the page says how things ended up rather than still saying "refreshing"
     left = _unfinished()
     action, refresh_note = freshness.needs_refresh(True, state, _data_mtime(), now, left)
     if action == "finish":
@@ -168,7 +145,6 @@ def _remember_outcome(ok):
 
 
 def start_pipeline(trigger, steps=FULL_RUN):
-    """Begin a run unless one is already going. Returns True if it started."""
     with run_lock:
         if run_state["running"]:
             return False
@@ -182,11 +158,6 @@ def start_pipeline(trigger, steps=FULL_RUN):
 
 
 def refresh_on_open():
-    """Called once when the app starts: refresh if the briefing is not from today.
-
-    There is deliberately no timer. One inside the app can only fire while the app is
-    running, so it rarely did; opening the app is the moment the briefing is wanted.
-    """
     global refresh_note
     try:
         enabled, state = freshness.load()
@@ -196,12 +167,11 @@ def refresh_on_open():
             start_pipeline("open")
         elif action == "finish":
             start_pipeline("open", FINISH_RUN)
-    except Exception as exc:                       # noqa: BLE001 - shown on the page
+    except Exception as exc:
         refresh_note = f"Could not check the briefing: {exc}"
 
 
 def _unfinished():
-    """How many of the latest fetched articles still have no score."""
     try:
         with open(paths.data("filtered.json")) as f:
             fetched = {a["url"] for a in json.load(f)}
@@ -225,8 +195,6 @@ def is_listening(port, host="127.0.0.1"):
 
 
 def pick_port(preferred=None):
-    """The configured port, or the next free one. Not 5000: macOS answers that with
-    its AirPlay receiver."""
     import socket
     start = preferred or int(os.environ.get("PORT", "5111"))
     for candidate in range(start, start + 20):
@@ -241,7 +209,6 @@ def pick_port(preferred=None):
 
 @app.after_request
 def no_store(response):
-    # the briefing changes under the page's feet, so never let a stale copy stick
     if request.path.endswith((".json", ".js")) or request.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     return response
@@ -257,12 +224,8 @@ DATA_FILES = {"scored.json", "briefing_data.js", "filtered.json"}
 
 @app.get("/<path:filename>")
 def static_file(filename):
-    # Only what the page loads: the briefing and its pictures. Run from a checkout, the
-    # app folder also holds .env, the code, run.log and .git, none of which a page needs.
-    # send_from_directory also refuses to escape the folder it is given.
     if filename in DATA_FILES:
         return send_from_directory(paths.DATA_DIR, filename)
-    # tidied first: "assets/../.env" starts with assets/ but is a path to .env
     path = posixpath.normpath(filename)
     if path.startswith("assets/"):
         return send_from_directory(HERE, path)
@@ -276,13 +239,8 @@ LOCAL_HOSTS = {"127.0.0.1", "localhost"}
 
 @app.before_request
 def only_this_machine_and_page():
-    # A website can point its own domain at 127.0.0.1 to reach a server like this one
-    # ("DNS rebinding"), but the request still names that website as its host.
     if request.host.rsplit(":", 1)[0] not in LOCAL_HOSTS:
         return jsonify({"error": "Mimir only answers on this machine."}), 403
-    # Browsers let any website send a plain POST to 127.0.0.1, so without this a page
-    # open in another tab could start refreshes that spend the day's Gemini requests.
-    # A browser always says which site a request comes from; tools like curl send none.
     if request.method == "POST":
         origin = request.headers.get("Origin")
         if origin and origin.rstrip("/") != request.host_url.rstrip("/"):
@@ -302,7 +260,6 @@ def status():
         "ok": run_state["ok"],
         "log": run_state["log"],
         "trigger": run_state["trigger"],
-        # whether each key is set, never the value itself
         "keys": {name: bool(env.get(name)) for name in KEYS},
         "keyLabels": KEYS,
         "dataUpdated": _data_mtime(),
@@ -339,7 +296,7 @@ def save_keys():
         if name not in payload:
             continue
         value = str(payload[name]).strip()
-        if not value:                       # blank means "leave the stored one alone"
+        if not value:
             continue
         if "\n" in value or "\r" in value:
             return jsonify({"error": f"{KEYS[name]} key contains a line break."}), 400
@@ -358,9 +315,6 @@ if __name__ == "__main__":
     print("It refreshes now if the briefing is not from today. Press Ctrl+C to stop.")
     threading.Thread(target=refresh_on_open, daemon=True).start()
     try:
-        # load_dotenv=False: Flask otherwise searches the working directory for a .env
-        # and loads it into the environment, which would quietly override the keys the
-        # person saved in their data directory
         app.run(host="127.0.0.1", port=port, debug=False, load_dotenv=False)
     except OSError as exc:
         print(f"\nCould not start on port {port}: {exc}")

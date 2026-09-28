@@ -1,10 +1,3 @@
-"""Run the whole Mimir pipeline in order.
-
-The fetch steps are optional: if one source cannot be reached, the run carries on
-with whatever the others returned. Filtering and
-scoring are required, because without them there is no briefing to show.
-"""
-
 import os
 import subprocess
 import sys
@@ -13,7 +6,6 @@ import time
 PYTHON = sys.executable
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# (script, label, required)
 STEPS = [
     ("fetch_rss.py",     "Monetary policy feeds",     False),
     ("fetch_google.py",  "Google News headlines",     False),

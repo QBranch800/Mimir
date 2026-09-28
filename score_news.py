@@ -13,13 +13,8 @@ import categories
 import pages
 import paths
 
-# override, so the key saved in the data directory always wins over one that
-# happens to be in the environment already
 load_dotenv(paths.data(".env"), override=True)
 
-# Refuse to call the API without a key rather than sending a request that is bound to
-# be rejected. This makes a first run say plainly what is missing, and makes it obvious
-# if a key is somehow coming from somewhere other than the file the person edited.
 _key = os.getenv("GEMINI_API_KEY")
 if not _key:
     raise SystemExit(
@@ -34,26 +29,11 @@ print(f"Using Gemini key from "
       f"(ends ...{_key[-4:]})")
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-# Tried in order. gemini-3.5-flash-lite is the main model: it answered when the full
-# Flash models refused with 503 "high demand" all day, and judged the finalists
-# correctly. The older lite model is the fallback for when it is busy. Gemini counts its
-# free daily allowance per model, so the fallback has its own 20 requests.
 MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
-# Not one big batch. A 134 article request was refused with 503 "high demand" over and
-# over while a 5 article one to the same model went through seconds later, so large
-# requests get shed when the service is busy, whatever the token limits allow. Batches
-# of this size have been served reliably. The filter sends at most ten per category, so
-# a whole day normally fits in one.
 BATCH_SIZE = 50
 MAX_ATTEMPTS = 3
-RETRY_CODES = {429}          # 503 is handled separately: it is not worth retrying
-# Every call counts against its model's 20 a day, including ones the server fails.
-# A clean run costs two or three: one batch, and the finalist check with sometimes a
-# second round of it. This leaves room for a busy model without letting a bad day run
-# away with the allowance.
+RETRY_CODES = {429}
 REQUEST_BUDGET = 8
-# Gemini's refusals come and go within minutes. Before giving up on articles, and before
-# the finalist check, wait this long and give every model one more chance.
 SECOND_CHANCE_WAIT = 30
 VERIFY_WAIT = 20
 MIN_SCORE = 4
@@ -148,18 +128,12 @@ Each article line shows: id | source | how many outlets covered the story | titl
 Give a one-sentence reason for each score. Return one entry per article, using the id given."""
 
 
-# A score only means something under the prompt that produced it. Stamping each one
-# with a fingerprint of the prompt means tuning the prompt automatically redoes the
-# stale scores, rather than someone having to remember to clear them by hand.
 PROMPT_VERSION = hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()[:12]
 
 
 CATEGORY_KEYS = ["monetary_policy", "us_fiscal_policy", "us_macro_data", "geopolitics",
                  "tech_and_ai"]
 
-# A second, much smaller request that checks only the stories the briefing will actually
-# show. The lighter models misfile stories when judging fifty at once, but get the same
-# stories right when judging a handful, so the check is cheap and catches what matters.
 VERIFY_PROMPT = """You check the finalists of a daily market briefing before anyone reads
 them. Each line gives an article and the category it was filed under. Say which category
 the article genuinely belongs to: usually the one it was filed under, sometimes another,
@@ -194,7 +168,7 @@ earlier one. Otherwise set it to -1.
 Give a one-sentence reason. Return one entry per article, using the id given."""
 
 VERIFY_VERSION = hashlib.sha256(VERIFY_PROMPT.encode()).hexdigest()[:12]
-FINALISTS_PER_CATEGORY = 3   # the leader plus two in reserve, in case the leader fails
+FINALISTS_PER_CATEGORY = 3
 
 
 class Verdict(BaseModel):
@@ -214,23 +188,17 @@ class Score(BaseModel):
 
 requests_made = 0
 out_of_quota = False
-exhausted = set()            # models that have run out of today's allowance
-overloaded = set()           # models that refused with 503 earlier in this run
-last_model = None            # which model answered the most recent batch
+exhausted = set()
+overloaded = set()
+last_model = None
 
 
 def is_daily_quota(error):
-    """A daily quota 429 cannot recover during this run, unlike a per-minute one."""
     text = str(error)
     return "429" in text and ("PerDay" in text or "per day" in text)
 
 
 def score_batch(batch, chars, models=None):
-    """Score one batch, falling back through MODELS when one is overloaded or spent.
-
-    Pass models to restrict which are tried: upgrading a provisional score only makes
-    sense with the primary, so falling back there would just redo the same work.
-    """
     lines = []
     for i, article in enumerate(batch):
         lines.append(
@@ -241,12 +209,9 @@ def score_batch(batch, chars, models=None):
 
 
 def ask(contents, size, system, schema, models=None):
-    """Send one request through the model chain. Returns the parsed reply, or None."""
     global out_of_quota, last_model
 
     for model in (models or MODELS):
-        # an overload lasts minutes, so once a model has refused, skip it for the rest
-        # of the run instead of paying a request per batch to hear the same answer
         if model in exhausted or model in overloaded:
             continue
         result = _try_model(model, contents, system, schema)
@@ -267,7 +232,6 @@ def ask(contents, size, system, schema, models=None):
 
 
 def _try_model(model, contents, system, schema):
-    """Returns the scores, None to give up on the batch, or "next" to try another model."""
     global requests_made
 
     for attempt in range(MAX_ATTEMPTS):
@@ -290,14 +254,11 @@ def _try_model(model, contents, system, schema):
             )
             return json.loads(response.text)
         except Exception as e:
-            # this model's allowance is spent, but the others each have their own
             if is_daily_quota(e):
                 exhausted.add(model)
                 print(f"{model} is out of requests for today, trying the next model.")
                 return "next"
             code = getattr(e, "code", None)
-            # Shedding load tends to last minutes, so retrying the same model just
-            # spends requests on a wall. A lighter model is usually free.
             if code in (503, 404):
                 overloaded.add(model)
                 reason = "is overloaded (503)" if code == 503 else "is not available (404)"
@@ -315,8 +276,6 @@ def _try_model(model, contents, system, schema):
 with open(paths.data("filtered.json")) as f:
     articles = json.load(f)
 
-# Scores already earned are kept, so a run that is cut short by a rate limit or an
-# outage is not wasted: running again picks up only what is still missing.
 previous = {}
 if os.path.exists(paths.data("scored.json")):
     try:
@@ -332,8 +291,6 @@ if os.path.exists(paths.data("scored.json")):
 
 current = {a["url"]: a for a in articles}
 scored = [a for url, a in previous.items() if url in current]
-# the score is kept, but where the story came from is today's: the category check
-# needs to know which source it is from, and older scores predate that being recorded
 for article in scored:
     article["feed"] = current[article["url"]]["feed"]
     article["topic"] = current[article["url"]]["topic"]
@@ -347,15 +304,10 @@ if scored:
 if not todo:
     print("Nothing new to score.")
 
-# Gemini can only spot two reports of the same story when they sit in the same batch, so
-# put each topic's articles next to each other rather than in fetch order.
 todo.sort(key=lambda a: a.get("topic") or "")
 
 
 def read_google_story(article):
-    """Find the outlet's own page behind a Google News link, and take its summary and
-    image. The Google link stays the story's identity, so its score is found again on
-    the next run; the outlet's address is kept alongside it for opening the article."""
     real = pages.resolve_google_news(article["url"])
     if not real:
         return
@@ -366,8 +318,6 @@ def read_google_story(article):
         article["banner_image"] = page["banner_image"]
 
 
-# Google gives only a headline. Reading the page first gives Gemini a summary to judge,
-# and the briefing an image. Only new stories: scored ones kept theirs from last time.
 google = [a for a in todo if pages.is_google_news(a["url"])]
 if google:
     print(f"Reading the pages behind {len(google)} Google News stories...")
@@ -379,12 +329,10 @@ if google:
 
 
 def score_and_record(batch):
-    """Score one batch and add the results to `scored`. Returns False if it was refused."""
     scores = score_batch(batch, SUMMARY_CHARS)
     if scores is None:
         return False
 
-    # articles about the same story share a story_id: keep only the best-scoring one
     stories = {}
     for item in scores:
         if 0 <= item["id"] < len(batch):
@@ -403,9 +351,6 @@ def score_and_record(batch):
                 best["also_covered_by"] += [other["source"]] + other["also_covered_by"]
         best["also_covered_by"] = sorted(set(best["also_covered_by"]))
         scored.append(best)
-        # Record the ones folded into it. Leaving them out meant the next run saw them as
-        # new, scored them alone in a small batch without their partner, and put the
-        # duplicate straight back into the briefing.
         for _, other in members:
             if other is not best:
                 other.update({"significance": 0, "category": "none", "merged_into": best["url"],
@@ -416,7 +361,6 @@ def score_and_record(batch):
     return True
 
 
-# Stage 1: score from the headline, and the summary where there is one
 for start in range(0, len(todo), BATCH_SIZE):
     batch = todo[start:start + BATCH_SIZE]
     print(f"Scoring articles {start + 1}-{start + len(batch)} of {len(todo)} still to do...")
@@ -428,8 +372,6 @@ for start in range(0, len(todo), BATCH_SIZE):
     if start + BATCH_SIZE < len(todo):
         time.sleep(13)
 
-# One more try for whatever was refused. Overloads pass, and without this a busy spell
-# in the middle of a run left a third of the briefing for another day.
 done = {a["url"] for a in scored}
 leftover = [a for a in todo if a["url"] not in done]
 if leftover and not out_of_quota and requests_made < REQUEST_BUDGET:
@@ -444,10 +386,6 @@ if leftover and not out_of_quota and requests_made < REQUEST_BUDGET:
 if not scored:
     raise SystemExit("Nothing was scored, so scored.json was left untouched.")
 
-# Scores from the fallback model are provisional, since an older model is worse at the
-# categorisation rules. So whenever the primary is free, re-score those with it. Only
-# the primary is tried here: falling back would just reproduce the provisional score,
-# and the briefing already has that to show.
 PRIMARY = MODELS[0]
 provisional = [a for a in scored if a.get("scored_by") and a["scored_by"] != PRIMARY
                and not a.get("merged_into")]
@@ -478,7 +416,6 @@ elif provisional:
 
 
 def rank(article):
-    """Most significant first, then most widely covered, then the freshest."""
     return (article["significance"], article.get("coverage_count") or 1,
             article.get("time_published") or "")
 
@@ -490,9 +427,6 @@ def set_aside(article, reason):
     article["significance_reason"] = reason
 
 
-# Stage 2a: a free check. Each category takes stories from its own source only, and
-# monetary, fiscal and macro stories almost always use their category's own vocabulary,
-# so a story filed there that never does is a misfile.
 guarded = 0
 for article in scored:
     category = article.get("category") or "none"
@@ -506,7 +440,6 @@ if guarded:
     print(f"The category check set aside {guarded} articles that cannot stand in the category they were filed under.")
 
 
-# Stage 2b: check the finalists, the few stories the briefing will actually show.
 def finalists():
     picked = []
     for category in CATEGORY_KEYS:
@@ -518,13 +451,11 @@ def finalists():
     return picked
 
 
-# This small request matters more than any other: it decides what is actually shown. A
-# model skipped earlier for refusing a batch of fifty may well take a request this small.
 if overloaded and finalists():
     time.sleep(VERIFY_WAIT)
     overloaded.clear()
 
-for _ in range(2):           # a second round checks the reserves if leaders were set aside
+for _ in range(2):
     batch = finalists()
     if not batch or out_of_quota or requests_made >= REQUEST_BUDGET:
         break
@@ -556,7 +487,6 @@ for _ in range(2):           # a second round checks the reserves if leaders wer
         article["verify_version"] = VERIFY_VERSION
         article["verified_category"] = article["category"]
 
-    # the same event leading two categories would fill two of five slots with one story
     for i, article in enumerate(batch):
         j = by_id.get(i, {}).get("same_event_as", -1)
         if not 0 <= j < len(batch) or j == i:
@@ -578,8 +508,6 @@ briefing = [a for a in scored if a["significance"] >= MIN_SCORE]
 with open(paths.data("scored.json"), "w") as f:
     json.dump(scored, f, indent=2)
 
-# Same data as a script file, so index.html also works when opened directly from the
-# file system, where the browser refuses to fetch scored.json.
 with open(paths.data("briefing_data.js"), "w") as f:
     f.write("window.MIMIR_DATA = ")
     json.dump(scored, f)

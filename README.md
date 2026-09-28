@@ -8,9 +8,9 @@ Early development, but usable end to end. Each category draws on one source: cen
 
 ## Setup
 
-1. Clone this repo
+1. Clone this repo. You need Python 3.12, which is what the desktop builds use
 2. Create a virtual environment: `python3 -m venv venv`
-3. Activate it: `source venv/bin/activate`
+3. Activate it: `source venv/bin/activate` on macOS or Linux, `venv\Scripts\activate` on Windows
 4. Install dependencies: `pip3 install -r requirements.txt`
 5. Copy `.env.example` to `.env` and add your own Gemini API key, which is free, from
    aistudio.google.com. The news sources need no key.
@@ -90,8 +90,14 @@ python3 app.py
 then open `http://127.0.0.1:5111`. As well as the briefing, this gives you a Refresh button
 that runs the pipeline from the page, and somewhere to paste your API key instead of editing
 `.env` by hand. It listens on localhost only: it can run the pipeline and write your key, so
-it is not something to expose to a network. Set `PORT` to use a different port. It avoids
-port 5000 because macOS answers that with its AirPlay receiver.
+it is not something to expose to a network. Set `PORT` to use a different port. If 5111 is
+already taken, for instance by the desktop app, it uses the next free one (5112 and so on)
+and prints the address. It avoids port 5000 because macOS answers that with its AirPlay
+receiver.
+
+Run from the project folder like this, Mimir keeps its key, briefing and settings in that
+folder. The desktop app keeps its own, separately (see below), so the two do not share a
+briefing or saved stories.
 
 You can also just open `index.html` from the file system. `score_news.py` writes the data as
 `briefing_data.js` so that works with no server; refreshing and key entry are the only things
