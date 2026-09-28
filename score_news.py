@@ -4,8 +4,6 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-import requests
-import trafilatura
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -50,18 +48,16 @@ BATCH_SIZE = 50
 MAX_ATTEMPTS = 3
 RETRY_CODES = {429}          # 503 is handled separately: it is not worth retrying
 # Every call counts against its model's 20 a day, including ones the server fails.
-# A clean run costs two or three: one batch, a second pass for pages without a summary,
-# and the finalist check. This leaves room for a busy model without letting a bad day
-# run away with the allowance.
+# A clean run costs two or three: one batch, and the finalist check with sometimes a
+# second round of it. This leaves room for a busy model without letting a bad day run
+# away with the allowance.
 REQUEST_BUDGET = 8
 # Gemini's refusals come and go within minutes. Before giving up on articles, and before
 # the finalist check, wait this long and give every model one more chance.
 SECOND_CHANCE_WAIT = 30
 VERIFY_WAIT = 20
 MIN_SCORE = 4
-TEXT_CANDIDATES = 20
-TITLE_STAGE_CHARS = 300
-TEXT_STAGE_CHARS = 1500
+SUMMARY_CHARS = 300
 
 SYSTEM_PROMPT = """You rate news articles for a daily briefing that covers exactly five categories.
 Score an article's significance only in relation to these:
@@ -316,16 +312,6 @@ def _try_model(model, contents, system, schema):
             time.sleep(wait)
 
 
-def fetch_text(url):
-    try:
-        response = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0 (compatible; Mimir/0.1)"})
-        response.raise_for_status()
-        text = trafilatura.extract(response.text)
-    except Exception:
-        return ""
-    return (text or "")[:TEXT_STAGE_CHARS]
-
-
 with open(paths.data("filtered.json")) as f:
     articles = json.load(f)
 
@@ -391,9 +377,10 @@ if google:
           f"{sum(1 for a in google if a['summary'])} had a summary and "
           f"{sum(1 for a in google if a['banner_image'])} an image")
 
+
 def score_and_record(batch):
     """Score one batch and add the results to `scored`. Returns False if it was refused."""
-    scores = score_batch(batch, TITLE_STAGE_CHARS)
+    scores = score_batch(batch, SUMMARY_CHARS)
     if scores is None:
         return False
 
@@ -429,7 +416,7 @@ def score_and_record(batch):
     return True
 
 
-# Stage 1: score from title (and summary where there is one)
+# Stage 1: score from the headline, and the summary where there is one
 for start in range(0, len(todo), BATCH_SIZE):
     batch = todo[start:start + BATCH_SIZE]
     print(f"Scoring articles {start + 1}-{start + len(batch)} of {len(todo)} still to do...")
@@ -470,7 +457,7 @@ if provisional and PRIMARY not in overloaded and PRIMARY not in exhausted:
     upgraded = 0
     for start in range(0, len(provisional), BATCH_SIZE):
         batch = provisional[start:start + BATCH_SIZE]
-        scores = score_batch(batch, TITLE_STAGE_CHARS, models=[PRIMARY])
+        scores = score_batch(batch, SUMMARY_CHARS, models=[PRIMARY])
         if not scores:
             print("The primary model is busy again, so the rest keep their provisional "
                   "scores until a later run.")
@@ -489,43 +476,6 @@ elif provisional:
     print(f"{len(provisional)} articles have provisional scores from a fallback model. "
           f"They will be re-scored when {PRIMARY} is free.")
 
-# The second pass is an improvement, not a requirement, so skip it rather than spend
-# requests we may not have. What was scored above is still saved either way. Only
-# articles scored in this run are candidates; earlier ones have already had their turn.
-fresh = {a["url"] for a in scored if a["url"] not in previous}
-# A Google News story whose real address was not found has only a redirect page, with
-# no article text on it, so it has only its headline to go on.
-no_summary = [] if (out_of_quota or requests_made >= REQUEST_BUDGET) else \
-    [a for a in scored if not a["summary"] and a["url"] in fresh and not a.get("merged_into")
-     and not pages.is_google_news(a.get("article_url") or a["url"])]
-if out_of_quota:
-    print("Skipping the second scoring pass, since there are no requests left today.")
-candidates = sorted(no_summary, key=lambda a: a["significance"], reverse=True)[:TEXT_CANDIDATES]
-if candidates:
-    print(f"Fetching page text for {len(candidates)} top articles that have no summary...")
-for article in candidates:
-    text = fetch_text(article.get("article_url") or article["url"])
-    if text:
-        article["summary"] = text
-        article["text_fetched"] = True
-    time.sleep(1)
-
-rescore = [a for a in candidates if a.get("text_fetched")]
-if candidates:
-    print(f"Got text for {len(rescore)} of {len(candidates)}. Scoring those again...")
-if rescore:
-    scores = score_batch(rescore, TEXT_STAGE_CHARS)
-    if scores:
-        for item in scores:
-            if 0 <= item["id"] < len(rescore):
-                article = rescore[item["id"]]
-                article["first_pass_significance"] = article["significance"]
-                article["significance"] = item["score"]
-                article["significance_reason"] = item["reason"]
-                article["category"] = item["category"]
-                article["scored_by"] = last_model
-                article["prompt_version"] = PROMPT_VERSION
-
 
 def rank(article):
     """Most significant first, then most widely covered, then the freshest."""
@@ -540,7 +490,7 @@ def set_aside(article, reason):
     article["significance_reason"] = reason
 
 
-# Stage 3a: a free check. Each category takes stories from its own source only, and
+# Stage 2a: a free check. Each category takes stories from its own source only, and
 # monetary, fiscal and macro stories almost always use their category's own vocabulary,
 # so a story filed there that never does is a misfile.
 guarded = 0
@@ -556,7 +506,7 @@ if guarded:
     print(f"The category check set aside {guarded} articles that cannot stand in the category they were filed under.")
 
 
-# Stage 3b: check the finalists, the few stories the briefing will actually show.
+# Stage 2b: check the finalists, the few stories the briefing will actually show.
 def finalists():
     picked = []
     for category in CATEGORY_KEYS:

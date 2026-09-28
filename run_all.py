@@ -1,7 +1,7 @@
 """Run the whole Mimir pipeline in order.
 
-The fetch steps are optional: if one source is rate limited or its key is missing,
-the run carries on with whatever the others returned. Filtering and
+The fetch steps are optional: if one source cannot be reached, the run carries on
+with whatever the others returned. Filtering and
 scoring are required, because without them there is no briefing to show.
 """
 
@@ -34,8 +34,7 @@ def run(script, label):
 
 
 def main():
-    print("Running the Mimir pipeline. This takes a few minutes, mostly waiting "
-          "out rate limits.")
+    print("Running the Mimir pipeline. This takes a minute or two.")
     failed = []
 
     for script, label, required in STEPS:
@@ -59,7 +58,7 @@ def main():
         print("The briefing is built from whatever did work.")
     else:
         print("Finished. Every step completed.")
-    print("Open index.html to read the briefing.")
+    print("Read it with: python3 app.py, then http://127.0.0.1:5111 (or open index.html).")
     return 0
 
 

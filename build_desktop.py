@@ -82,8 +82,9 @@ def sign_adhoc(app_path):
     Without any signature at all, macOS refuses an app copied from another machine
     outright ("Mimir is damaged and can't be opened"), which looks like a broken
     download. Ad-hoc signing turns that into the ordinary unidentified-developer
-    prompt, which a person can get past by right-clicking and choosing Open. Only a
-    paid Developer ID removes the prompt entirely.
+    prompt, which a person can get past with System Settings > Privacy & Security >
+    Open Anyway (right-click and Open stopped working in macOS 15). Only a paid
+    Developer ID removes the prompt entirely.
     """
     if not os.path.exists(app_path):
         return

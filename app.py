@@ -10,6 +10,7 @@ keys endpoint writes to .env, so this is not something to expose to a network.
 import datetime
 import json
 import os
+import posixpath
 import subprocess
 import sys
 import threading
@@ -105,7 +106,7 @@ FULL_RUN = [
     ("score_news.py", "Scoring with Gemini"),
 ]
 # finishing a run cut short today: scoring picks up only what is missing, and fetching
-# again would spend the news sources' allowances for nothing
+# again would change which stories are candidates halfway through the day's scoring
 FINISH_RUN = [("score_news.py", "Scoring with Gemini")]
 
 
@@ -256,12 +257,36 @@ DATA_FILES = {"scored.json", "briefing_data.js", "filtered.json"}
 
 @app.get("/<path:filename>")
 def static_file(filename):
-    # send_from_directory refuses to escape the folder it is given, so a crafted path
-    # cannot read files elsewhere on the machine
-    if filename.startswith(".env"):
-        return jsonify({"error": "not found"}), 404
-    folder = paths.DATA_DIR if filename in DATA_FILES else HERE
-    return send_from_directory(folder, filename)
+    # Only what the page loads: the briefing and its pictures. Run from a checkout, the
+    # app folder also holds .env, the code, run.log and .git, none of which a page needs.
+    # send_from_directory also refuses to escape the folder it is given.
+    if filename in DATA_FILES:
+        return send_from_directory(paths.DATA_DIR, filename)
+    # tidied first: "assets/../.env" starts with assets/ but is a path to .env
+    path = posixpath.normpath(filename)
+    if path.startswith("assets/"):
+        return send_from_directory(HERE, path)
+    if path == "index.html":
+        return index()
+    return jsonify({"error": "not found"}), 404
+
+
+LOCAL_HOSTS = {"127.0.0.1", "localhost"}
+
+
+@app.before_request
+def only_this_machine_and_page():
+    # A website can point its own domain at 127.0.0.1 to reach a server like this one
+    # ("DNS rebinding"), but the request still names that website as its host.
+    if request.host.rsplit(":", 1)[0] not in LOCAL_HOSTS:
+        return jsonify({"error": "Mimir only answers on this machine."}), 403
+    # Browsers let any website send a plain POST to 127.0.0.1, so without this a page
+    # open in another tab could start refreshes that spend the day's Gemini requests.
+    # A browser always says which site a request comes from; tools like curl send none.
+    if request.method == "POST":
+        origin = request.headers.get("Origin")
+        if origin and origin.rstrip("/") != request.host_url.rstrip("/"):
+            return jsonify({"error": "Only Mimir's own page can do that."}), 403
 
 
 @app.get("/api/status")

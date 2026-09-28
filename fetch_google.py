@@ -7,7 +7,8 @@ one real fiscal or macro story. Searching returns the outlets that actually cove
 subject, within minutes, and needs no key.
 
 Google gives a headline and outlet for each result, but no summary, and links that go
-through a Google redirect, so the scorer judges these from their headlines.
+through a Google redirect. The scorer finds the outlet's own page behind each new story
+and reads its summary and image there.
 
 Each category runs several short searches rather than one long one: Google ignored the
 "last day" limit on a search with a dozen alternatives in it, and returned stories
@@ -25,6 +26,7 @@ from urllib.parse import quote
 import requests
 
 import paths
+from pages import HEADERS
 
 SEARCH_URL = "https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
 QUERIES = {
@@ -49,9 +51,6 @@ QUERIES = {
     ],
 }
 LOOKBACK = "1d"
-
-HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-                         "(KHTML, like Gecko) Chrome/126 Safari/537.36"}
 
 
 def search(query):

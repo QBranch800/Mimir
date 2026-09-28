@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 import requests
 
 import paths
-from pages import canonical_url
+from pages import HEADERS, canonical_url
 
 # (source name, url). Each was checked for how many central bank stories it carries;
 # general business and world feeds that carried none were dropped, and so was the Bank
@@ -38,9 +38,6 @@ FEEDS = [
 ]
 TOPIC = "monetary_policy"
 
-# some sites refuse requests that do not look like a browser
-HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-                         "(KHTML, like Gecko) Chrome/126 Safari/537.36"}
 ATOM = "{http://www.w3.org/2005/Atom}"
 MEDIA = "{http://search.yahoo.com/mrss/}"
 DC = "{http://purl.org/dc/elements/1.1/}"

@@ -81,8 +81,8 @@ jobs:
           fi
           echo "Refused to score without a key, and wrote nothing. Correct."
 
-          # The RSS feeds need no key, so this is the one step CI can run for real: it
-          # proves the packaged app can make network requests and parse feeds.
+          # The RSS feeds need no key and take seconds, so CI runs that step for real:
+          # it proves the packaged app can make network requests and parse feeds.
           "$APP" --step fetch_rss
           test -s "$MIMIR_DATA_DIR/rss_results.json" \
             || { echo "FAIL: fetching the RSS feeds produced nothing"; exit 1; }

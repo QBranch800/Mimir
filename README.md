@@ -50,9 +50,9 @@ be no briefing to show. The individual steps can still be run on their own:
    macro data release gets one of those ten however many outlets report it.
 5. `score_news.py` asks Gemini to rate each article from 1 to 10 against five categories:
    monetary policy, US fiscal policy, US macroeconomic data, geopolitics, and tech and AI. It
-   tags each article with the category it belongs to, fetches the page text for the top
-   articles that have no summary and scores those again, then checks its own work before
-   writing `scored.json`:
+   first reads the outlet's own page for each new Google News story, to get its summary and
+   image. It tags each article with the category it belongs to, then checks its own work
+   before writing `scored.json`:
    - a story filed under a category whose source it did not come from, or under monetary
      policy, fiscal policy or macro data without ever using that category's own vocabulary,
      is set aside as a misfile
@@ -73,10 +73,15 @@ be no briefing to show. The individual steps can still be run on their own:
 
 ## Reading the briefing
 
-A story whose source gives no image shows a picture for its category instead, from
-`assets/categories/`.
+The briefing shows the single most significant story in each category, with a
+reading pane beside it. Settings has a theme switch, a significance threshold, control over
+which categories appear and in what order, and a way to clear saved stories.
 
-The best way is to run the local server:
+A story whose source gives no image shows a picture for its category instead, from
+`assets/categories/`. Saved stories keep their own copy on the device, so they stay in
+Saved after they have dropped out of the day's briefing.
+
+The best way to open it is to run the local server:
 
 ```
 python3 app.py
@@ -104,10 +109,6 @@ folder (Windows), so it opens and refreshes when the computer starts.
 
 If Gemini is out of requests for the day, Mimir says so and does not try again until the
 allowance resets, since opening the app again before then would only fail the same way.
-
-The briefing shows the single most significant story in each category, with a
-reading pane beside it. Settings has a theme switch, a significance threshold, control over
-which categories appear and in what order, and a way to clear saved stories.
 
 ## As a desktop app
 

@@ -59,7 +59,7 @@ def needs_refresh(enabled, state, data_mtime, now, unfinished=0):
 
     action is "full" to fetch and score, "finish" to only score articles an earlier run
     today could not get to, or None to leave the briefing alone. Finishing never fetches
-    again, so it does not spend the news sources' daily allowances.
+    again, so the stories being scored stay the ones the earlier run picked.
     """
     if not enabled:
         return None, "Refreshing on open is off. Use Refresh now when you want one."

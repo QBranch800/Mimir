@@ -41,8 +41,3 @@ os.makedirs(DATA_DIR, exist_ok=True)
 def data(name):
     """A file Mimir reads and writes: keys, fetched news, scores, settings."""
     return os.path.join(DATA_DIR, name)
-
-
-def asset(name):
-    """A file that ships with Mimir and is only ever read."""
-    return os.path.join(APP_DIR, name)

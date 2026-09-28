@@ -291,15 +291,6 @@ const CATEGORY_LABEL = Object.fromEntries(ALL_CATEGORIES.map(c => [c.key, c.labe
 // A stand-in picture per category, for stories whose source gives no image
 const categoryImage = key => CATEGORY_LABEL[key] ? `assets/categories/${key}.jpg` : null;
 
-// Articles scored before score_news.py tagged categories only carry the fetch topic,
-// which says where an article came from rather than what it is about.
-const TOPIC_FALLBACK = {
-  economy_monetary: "monetary_policy",
-  economy_fiscal:   "us_fiscal_policy",
-  economy_macro:    "us_macro_data",
-  geopolitics:      "geopolitics",
-  technology:       "tech_and_ai",
-};
 const DEFAULTS = {
   theme: "light",                                        // light | dark
   minScore: 4,                                           // significance a story must reach
@@ -313,12 +304,45 @@ let selectedUrl = null;
 let saved = loadSaved();
 let settings = loadSettings();
 
+// A saved story keeps its own copy, because the briefing only holds the last day's
+// stories: keeping just the address meant a saved story vanished a day or two later.
 function loadSaved() {
-  try { return new Set(JSON.parse(localStorage.getItem("mimir:saved") || "[]")); }
-  catch { return new Set(); }
+  const map = new Map();
+  try {
+    for (const entry of JSON.parse(localStorage.getItem("mimir:saved") || "[]")) {
+      if (typeof entry === "string") map.set(entry, null);   // saved before copies were kept
+      else if (entry && entry.url) map.set(entry.url, entry);
+    }
+  } catch {}
+  return map;
 }
 function persistSaved() {
-  try { localStorage.setItem("mimir:saved", JSON.stringify([...saved])); } catch {}
+  try {
+    localStorage.setItem("mimir:saved", JSON.stringify([...saved].map(([url, copy]) => copy || url)));
+  } catch {}
+}
+const SAVED_FIELDS = ["title", "url", "article_url", "source", "time_published", "summary",
+                      "banner_image", "category", "significance", "coverage_count"];
+function copyOf(a) {
+  return Object.fromEntries(SAVED_FIELDS.filter(k => k in a).map(k => [k, a[k]]));
+}
+// Saved stories that can be shown, most recently saved first
+function savedStories() {
+  const out = [];
+  for (const [url, copy] of saved) {
+    const story = articles.find(a => a.url === url) || copy;
+    if (story) out.push(story);
+  }
+  return out.reverse();
+}
+// Stories saved before copies were kept get one while they are still in the briefing
+function fillSavedCopies() {
+  let changed = false;
+  for (const [url, copy] of saved) {
+    const a = !copy && articles.find(x => x.url === url);
+    if (a) { saved.set(url, copyOf(a)); changed = true; }
+  }
+  if (changed) persistSaved();
 }
 
 function loadSettings() {
@@ -347,7 +371,7 @@ function activeCategories() {
     .filter(Boolean);
 }
 
-const categoryOf = a => a.category || TOPIC_FALLBACK[a.topic] || "none";
+const categoryOf = a => a.category || "none";
 
 function parseDate(stamp) {
   const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})/.exec(stamp || "");
@@ -370,7 +394,7 @@ function longDate(stamp) {
 // The briefing is the single leading story in each category: highest significance,
 // breaking ties on how many outlets carried it.
 function pool() {
-  if (view === "saved") return articles.filter(a => saved.has(a.url));
+  if (view === "saved") return savedStories();
 
   const lead = [];
   for (const c of activeCategories()) {
@@ -479,13 +503,14 @@ function renderSettings(host) {
   host.append(cats);
 
   // Saved stories
+  const savedCount = savedStories().length;
   const savedGroup = settingsGroup("Saved stories",
-    saved.size ? `${saved.size} ${saved.size === 1 ? "story" : "stories"} saved on this device.`
+    savedCount ? `${savedCount} ${savedCount === 1 ? "story" : "stories"} saved on this device.`
                : "Nothing saved on this device.");
   const clear = el("button", "danger", "Clear saved stories");
   clear.disabled = !saved.size;
   clear.onclick = () => {
-    if (!confirm(`Remove all ${saved.size} saved stories? This cannot be undone.`)) return;
+    if (!confirm(`Remove all ${savedCount} saved stories? This cannot be undone.`)) return;
     saved.clear(); persistSaved(); render();
   };
   savedGroup.append(clear);
@@ -690,7 +715,8 @@ function renderNav() {
   const nav = document.getElementById("nav");
   nav.replaceChildren();
   for (const [key, label] of [["today","Today"],["saved","Saved"],["settings","Settings"]]) {
-    const b = el("button", null, key === "saved" && saved.size ? `${label} (${saved.size})` : label);
+    const count = key === "saved" ? savedStories().length : 0;
+    const b = el("button", null, count ? `${label} (${count})` : label);
     b.setAttribute("aria-current", String(view === key));
     b.onclick = () => { view = key; selectedUrl = null; render(); };
     nav.append(b);
@@ -768,7 +794,8 @@ function renderReader() {
   host.replaceChildren();
 
   const list = pool();
-  const article = articles.find(a => a.url === selectedUrl) || list[0];
+  // a saved story may no longer be in the briefing, so look in what is on screen first
+  const article = [...list, ...articles].find(a => a.url === selectedUrl) || list[0];
   if (!article) {
     host.append(el("p", "placeholder", "Select a story to read."));
     return;
@@ -793,7 +820,7 @@ function renderReader() {
 
   const saveBtn = el("button", "action", saved.has(article.url) ? "Saved" : "Save");
   saveBtn.onclick = () => {
-    saved.has(article.url) ? saved.delete(article.url) : saved.add(article.url);
+    saved.has(article.url) ? saved.delete(article.url) : saved.set(article.url, copyOf(article));
     persistSaved(); render();
   };
   const open = el("a", "action", "Open original");
@@ -847,6 +874,7 @@ async function loadArticles() {
   articles.sort((a, b) =>
     b.significance - a.significance || (b.coverage_count || 0) - (a.coverage_count || 0)
     || (b.time_published || "").localeCompare(a.time_published || ""));
+  fillSavedCopies();
   return true;
 }
 
