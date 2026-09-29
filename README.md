@@ -8,9 +8,9 @@ Early development, but usable end to end. Each category draws on one source: cen
 
 ## Setup
 
-1. Clone this repo
+1. Clone this repo. You need Python 3.12, which is what the desktop builds use
 2. Create a virtual environment: `python3 -m venv venv`
-3. Activate it: `source venv/bin/activate`
+3. Activate it: `source venv/bin/activate` on macOS or Linux, `venv\Scripts\activate` on Windows
 4. Install dependencies: `pip3 install -r requirements.txt`
 5. Copy `.env.example` to `.env` and add your own Gemini API key, which is free, from
    aistudio.google.com. The news sources need no key.
@@ -60,6 +60,10 @@ be no briefing to show. The individual steps can still be run on their own:
      which can confirm them, move them to a better category, or set them aside, and which
      keeps the same event from leading two categories at once
 
+   Finally it writes a short explanation of each of those stories, saying what happened and
+   why it matters, from the article's own text where the outlet allows it to be read. It is
+   told to use only facts the article states. Each explanation is written once and kept.
+
    It uses `gemini-3.5-flash-lite`. If that is overloaded it falls back to
    `gemini-3.1-flash-lite`, which has its own free allowance. Those scores are marked
    provisional and scored again by the main model when it is free.
@@ -77,8 +81,9 @@ The briefing shows the single most significant story in each category, with a
 reading pane beside it. Settings has a theme switch, a significance threshold, control over
 which categories appear and in what order, and a way to clear saved stories.
 
-A story whose source gives no image shows a picture for its category instead, from
-`assets/categories/`. Saved stories keep their own copy on the device, so they stay in
+Opening a story shows its summary, its image, and the explanation written for it. A story
+whose source gives no image shows a picture for its category instead, from
+`assets/categories/`, both in the list and when it is opened. Saved stories keep their own copy on the device, so they stay in
 Saved after they have dropped out of the day's briefing.
 
 The best way to open it is to run the local server:
@@ -90,8 +95,14 @@ python3 app.py
 then open `http://127.0.0.1:5111`. As well as the briefing, this gives you a Refresh button
 that runs the pipeline from the page, and somewhere to paste your API key instead of editing
 `.env` by hand. It listens on localhost only: it can run the pipeline and write your key, so
-it is not something to expose to a network. Set `PORT` to use a different port. It avoids
-port 5000 because macOS answers that with its AirPlay receiver.
+it is not something to expose to a network. Set `PORT` to use a different port. If 5111 is
+already taken, for instance by the desktop app, it uses the next free one (5112 and so on)
+and prints the address. It avoids port 5000 because macOS answers that with its AirPlay
+receiver.
+
+Run from the project folder like this, Mimir keeps its key, briefing and settings in that
+folder. The desktop app keeps its own, separately (see below), so the two do not share a
+briefing or saved stories.
 
 You can also just open `index.html` from the file system. `score_news.py` writes the data as
 `briefing_data.js` so that works with no server; refreshing and key entry are the only things

@@ -1,11 +1,3 @@
-"""Cut the fetched news down to the few stories per category worth a Gemini request.
-
-Every story that reaches Gemini costs part of a request from a free allowance of 20 a
-day, so this is strict on purpose. A story has to be recent, not filler, and plainly
-about a category its source was chosen for. Then each category keeps only its
-MAX_PER_CATEGORY biggest stories, judged by how many outlets are carrying them.
-"""
-
 import collections
 import datetime
 import difflib
@@ -16,8 +8,6 @@ import re
 import categories
 import paths
 
-# Sources that only ever produce algorithmic single-stock filler or SEO content farming.
-# Each was checked against a day of scored output: none produced a single useful story.
 BLOCKED_SOURCES = {
     "MarketBeat", "CBIZ", "AD HOC NEWS", "Kalkine Media",
     "Stock Titan", "Insider Monkey", "Pluang", "scanx.trade",
@@ -28,16 +18,11 @@ BLOCKED_TITLE_PATTERNS = [
     re.compile(r"\b(takes?|buys?|acquires?|sells?)\b.*\b(position|stake|shares)\b", re.I),
     re.compile(r"\bstock holdings\b", re.I),
     re.compile(r"\b(average|consensus) (rating|recommendation)\b", re.I),
-    # content-farm question headlines, e.g. "What Is Driving Attention to X (NASDAQ:Y)?"
     re.compile(r"^(what|why|could|is|are|has|does|do)\b.{0,80}\([A-Z]{2,6}:[A-Z.]+\)", re.I),
-    # algorithmic stock-movement filler, e.g. "X stock edges higher after ..."
     re.compile(r"\bstock (edges|gains?|holds?|slips?|trades?|heads?|dips?|climbs?)\b", re.I),
-    # the same thing written more excitedly, e.g. "Why Is X Stock Surging Premarket?"
     re.compile(r"\bstocks? (is |are )?(surg|soar|jump|plung|tumbl|ralli|rall|sink|spik|"
                r"crater|slump|skyrocket)\w*", re.I),
     re.compile(r"\b(pre-?market|after-?hours) (trading|move|gains?|losses?|today)\b", re.I),
-    # syndicated stock-picking, which aggregators republish under a dozen names, so it
-    # looks widely covered when it is one piece of filler
     re.compile(r"\bwhich .{0,40}\bis (a|the) better buy\b", re.I),
     re.compile(r"\b(stock|shares) an? (buy|sell)\b|\bshould you buy\b|\bstocks? to buy\b", re.I),
     re.compile(r"\bshares are (falling|rising|soaring|plunging|trading)\b", re.I),
@@ -45,15 +30,10 @@ BLOCKED_TITLE_PATTERNS = [
     re.compile(r"\bstock price, news, quote\b", re.I),
     re.compile(r"\bzacks\b", re.I),
     re.compile(r"\bmarket chatter\b", re.I),
-    # law firms advertising for class action plaintiffs
     re.compile(r"\binvestigating (allegations|claims)\b|\bclass action\b|\bshareholder (alert|rights)\b", re.I),
-    # photo captions, which read like news: "FILE PHOTO: ... on day two of a shutdown"
-    # is a stock image, and was scored as the day's top fiscal story from its headline
     re.compile(r"^(file )?photos?\b|\bfile photo\b", re.I),
 ]
 
-# Recurring market roundups and previews. These are competing briefings, not discrete events,
-# so they crowd out real news even when their content is on topic.
 ROUNDUP_TITLE_PATTERNS = [
     re.compile(r"\bdaily open\b", re.I),
     re.compile(r"\bmarkets? brief\b", re.I),
@@ -66,25 +46,16 @@ ROUNDUP_TITLE_PATTERNS = [
 
 SIMILARITY_THRESHOLD = 0.8
 
-# A daily briefing: anything older than this is not today's news. It also means a source
-# whose fetch failed cannot leak its last, stale results into a fresh briefing.
 MAX_AGE_HOURS = 24
 
-# The most any category sends to Gemini. Five categories of ten is one request.
 MAX_PER_CATEGORY = 10
 
-# The file each source writes, and the name categories.SOURCE knows it by. Every source
-# is optional: if one fails, the run carries on with the others.
 SOURCE_FILES = {
     "rss_results.json": "rss",
     "google_results.json": "google",
     "gdelt_results.json": "gdelt",
 }
 
-# A macro story is a data release, and every outlet reports the same release on the same
-# day in its own words ("jobless claims near 57-year low", "claims slip to 197,000"), so
-# each release gets one slot. Without this, one day's jobless claims took six of ten.
-# The more specific names come first.
 MACRO_RELEASES = [re.compile(p, re.I) for p in (
     r"jobless claims", r"payrolls|jobs report|unemployment rate", r"job openings|\bjolts\b",
     r"\bcpi\b|consumer price", r"\bpce\b", r"\bgdp\b|gross domestic product",
@@ -105,7 +76,7 @@ for name, feed in SOURCE_FILES.items():
                 total += 1
                 if article["url"] not in unique:
                     article["feed"] = feed
-                    article["topic"] = hint     # the category it was fetched for
+                    article["topic"] = hint
                     unique[article["url"]] = article
 
 if not unique:
@@ -120,7 +91,6 @@ def normalize_title(title):
 
 
 def age_hours(article, now):
-    """Hours since publication, or None when the date cannot be read."""
     stamp = (article.get("time_published") or "").rstrip("Z")
     try:
         when = datetime.datetime.strptime(stamp[:15], "%Y%m%dT%H%M%S")
@@ -130,18 +100,12 @@ def age_hours(article, now):
 
 
 def category_for(article):
-    """The category the story is plainly about, among those its source covers, or None.
-
-    The one it was fetched for is tried first, but a story found by a "fiscal" search
-    that is really a jobs report can still count as macro data.
-    """
     options = categories.categories_of(article["feed"])
     options.sort(key=lambda c: c != article["topic"])
     return next((c for c in options if categories.on_topic(article, c)), None)
 
 
 def story_words(title):
-    """The capitalised words of a headline: the names that say which story it is."""
     return {w.lower() for w in re.findall(r"\b[A-Z][A-Za-z0-9&-]{2,}", re.sub(r"['’]s\b", "", title))}
 
 
@@ -192,11 +156,6 @@ for reason, count in dropped.items():
     if count:
         print(f"  {count:4} dropped: {reason}")
 
-# Which stories are the day's biggest, for free. Headlines about one story are worded
-# differently from outlet to outlet ("Akamai shares jump on $11.6B Anthropic deal",
-# "Anthropic strikes $12 billion AI computing deal with Akamai"), but they name the same
-# things. So two headlines are taken to be the same story when they share two names that
-# are rare in today's news. Names in every other headline ("Fed", "Stock") prove nothing.
 name_counts = collections.Counter(w for a in unique.values() for w in story_words(a["title"]))
 rare_limit = max(3, len(unique) * 0.02)
 
@@ -206,18 +165,15 @@ def rare_names(article):
 
 
 def outlet(source):
-    """One name per newsroom: Yahoo Finance UK and Yahoo! Finance Canada are one outlet."""
     words = re.sub(r"^the\s+|[!.]com\b|!", "", source.lower()).split()
     return words[0] if words else source
 
 
 def release(article):
-    """Which macro data release a headline is about, or None."""
     return next((i for i, p in enumerate(MACRO_RELEASES) if p.search(article["title"])), None)
 
 
 def pick(pool):
-    """The category's biggest stories, one article each, at most MAX_PER_CATEGORY."""
     names = [rare_names(a) for a in pool]
     releases = [release(a) if a["topic"] == "us_macro_data" else None for a in pool]
 
@@ -230,14 +186,13 @@ def pick(pool):
         carried |= {pool[j]["source"] for j in range(len(pool)) if j != i and same_story(i, j)}
         outlets.append(len({outlet(s) for s in carried}))
 
-    # most outlets first; then GDELT's own measure of how widely it was reported; then newest
     order = sorted(range(len(pool)), key=lambda i: pool[i].get("time_published") or "", reverse=True)
     order.sort(key=lambda i: (-outlets[i], -(pool[i].get("gdelt_weight") or 0)))
 
     chosen = []
     for i in order:
         same = next((c for c in chosen if same_story(i, c)), None)
-        if same is not None:        # another outlet's take on a story already picked
+        if same is not None:
             kept_one = pool[same]
             kept_one["coverage_count"] += pool[i]["coverage_count"]
             kept_one["also_covered_by"] = sorted({*kept_one["also_covered_by"], pool[i]["source"]})
