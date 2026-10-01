@@ -4,19 +4,16 @@ A daily briefing app that surfaces genuinely market-moving news across five fixe
 
 ## Status
 
-Early development, but usable end to end. Each category draws on one source: central bank and news desk RSS feeds for monetary policy, Alpha Vantage for US fiscal policy, US macro data and tech and AI, and GDELT for geopolitics. It strictly filters what they return down to at most ten stories per category, scores those for significance with Gemini, and shows the leading story in each as a briefing you read in the browser. A local server adds a refresh button and somewhere to keep your API keys, and the briefing refreshes itself when you open the app.
+Early development, but usable end to end. Each category draws on one source: central bank and news desk RSS feeds for monetary policy, Google News searches for US fiscal policy, US macro data and tech and AI, and GDELT for geopolitics. It strictly filters what they return down to at most ten stories per category, scores those for significance with Gemini, and shows the leading story in each as a briefing you read in the browser. A local server adds a refresh button and somewhere to keep your API key, and the briefing refreshes itself when you open the app.
 
 ## Setup
 
-1. Clone this repo
+1. Clone this repo. You need Python 3.12, which is what the desktop builds use
 2. Create a virtual environment: `python3 -m venv venv`
-3. Activate it: `source venv/bin/activate`
+3. Activate it: `source venv/bin/activate` on macOS or Linux, `venv\Scripts\activate` on Windows
 4. Install dependencies: `pip3 install -r requirements.txt`
-5. Copy `.env.example` to `.env` and add your own API keys, both free:
-   - Alpha Vantage, at alphavantage.co
-   - Gemini, at aistudio.google.com
-
-   The RSS feeds and GDELT need no key.
+5. Copy `.env.example` to `.env` and add your own Gemini API key, which is free, from
+   aistudio.google.com. The news sources need no key.
 
 ## Running it
 
@@ -26,37 +23,46 @@ With the virtual environment activated, run everything with one command:
 python3 run_all.py
 ```
 
-That runs the five steps below in order. If a news source is rate limited or missing a key the
-run carries on with the others, but it stops if filtering or scoring fails, since there would
+That runs the five steps below in order. If a news source cannot be reached the run carries
+on with the others, but it stops if filtering or scoring fails, since there would
 be no briefing to show. The individual steps can still be run on their own:
 
 1. `fetch_rss.py` fetches monetary policy from the Federal Reserve, the ECB and the Bank of
    England, and from the CNBC, Guardian, BBC and NPR news desks that report on central
    banks, into `rss_results.json`. It needs no API key, and its stories are minutes old.
-2. `fetch_news.py` fetches US fiscal policy, US macro data and tech and AI headlines from
-   Alpha Vantage for the last 36 hours into `results.json`. The free tier allows 25 requests
-   a day; a run uses three.
+2. `fetch_google.py` fetches US fiscal policy, US macro data and tech and AI headlines from
+   Google News into `google_results.json`, by searching for the words that define each
+   category ("government shutdown", "jobless claims", "OpenAI" and so on) over the last day.
+   It needs no key. Google gives only a headline, an outlet and a link to a Google redirect
+   page, so before scoring, `score_news.py` finds each new story's real address and reads its
+   summary and image from the outlet's own page. Paywalled sites often refuse; those stories
+   keep just their headline.
 3. `fetch_gdelt.py` fetches geopolitics from GDELT's raw event files for the last 24 hours
    into `gdelt_results.json`. It keeps events between two countries, or involving a body such
    as the UN, reported by outlets on an allowlist, ranks the articles by how widely their
    events were reported, and reads the headline and summary of the top 20. It needs no key.
 4. `filter_news.py` merges all three into `filtered.json`, strictly, since every story it
-   passes on costs part of a Gemini request. It drops anything more than 36 hours old, known
+   passes on costs part of a Gemini request. It drops anything more than 24 hours old, known
    sources of stock filler, noisy titles and recurring market roundups, and any story that is
    not plainly about a category its source was chosen for, judged by that category's own
    words. It merges near-duplicate titles, then keeps at most ten stories per category, the
-   ones carried by the most outlets, so a whole day normally fits in one Gemini request.
+   ones carried by the most outlets, so a whole day normally fits in one Gemini request. A
+   macro data release gets one of those ten however many outlets report it.
 5. `score_news.py` asks Gemini to rate each article from 1 to 10 against five categories:
    monetary policy, US fiscal policy, US macroeconomic data, geopolitics, and tech and AI. It
-   tags each article with the category it belongs to, fetches the page text for the top
-   articles that have no summary and scores those again, then checks its own work before
-   writing `scored.json`:
+   first reads the outlet's own page for each new Google News story, to get its summary and
+   image. It tags each article with the category it belongs to, then checks its own work
+   before writing `scored.json`:
    - a story filed under a category whose source it did not come from, or under monetary
      policy, fiscal policy or macro data without ever using that category's own vocabulary,
      is set aside as a misfile
    - the few stories the briefing will actually show are checked again in one small request,
      which can confirm them, move them to a better category, or set them aside, and which
      keeps the same event from leading two categories at once
+
+   Finally it writes a short explanation of each of those stories, saying what happened and
+   why it matters, from the article's own text where the outlet allows it to be read. It is
+   told to use only facts the article states. Each explanation is written once and kept.
 
    It uses `gemini-3.5-flash-lite`. If that is overloaded it falls back to
    `gemini-3.1-flash-lite`, which has its own free allowance. Those scores are marked
@@ -71,17 +77,32 @@ be no briefing to show. The individual steps can still be run on their own:
 
 ## Reading the briefing
 
-The best way is to run the local server:
+The briefing shows the single most significant story in each category, with a
+reading pane beside it. Settings has a theme switch, a significance threshold, control over
+which categories appear and in what order, and a way to clear saved stories.
+
+Opening a story shows its summary, its image, and the explanation written for it. A story
+whose source gives no image shows a picture for its category instead, from
+`assets/categories/`, both in the list and when it is opened. Saved stories keep their own copy on the device, so they stay in
+Saved after they have dropped out of the day's briefing.
+
+The best way to open it is to run the local server:
 
 ```
 python3 app.py
 ```
 
 then open `http://127.0.0.1:5111`. As well as the briefing, this gives you a Refresh button
-that runs the pipeline from the page, and somewhere to paste your API keys instead of editing
-`.env` by hand. It listens on localhost only: it can run the pipeline and write your keys, so
-it is not something to expose to a network. Set `PORT` to use a different port. It avoids
-port 5000 because macOS answers that with its AirPlay receiver.
+that runs the pipeline from the page, and somewhere to paste your API key instead of editing
+`.env` by hand. It listens on localhost only: it can run the pipeline and write your key, so
+it is not something to expose to a network. Set `PORT` to use a different port. If 5111 is
+already taken, for instance by the desktop app, it uses the next free one (5112 and so on)
+and prints the address. It avoids port 5000 because macOS answers that with its AirPlay
+receiver.
+
+Run from the project folder like this, Mimir keeps its key, briefing and settings in that
+folder. The desktop app keeps its own, separately (see below), so the two do not share a
+briefing or saved stories.
 
 You can also just open `index.html` from the file system. `score_news.py` writes the data as
 `briefing_data.js` so that works with no server; refreshing and key entry are the only things
@@ -91,7 +112,8 @@ that need `app.py`.
 
 When you open Mimir and the briefing is not from today, it builds a new one. There is no timer,
 so nothing runs while Mimir is closed, and a refresh never happens behind your back. You can
-also press Refresh in Settings at any time, or switch refreshing on open off there.
+also press Refresh now on the Today page at any time, or switch refreshing on open off in
+Settings.
 
 A refresh takes a minute or two, during which the previous briefing stays on screen. If you
 would rather it was ready the moment you look, add Mimir to your Login Items (macOS) or Startup
@@ -99,10 +121,6 @@ folder (Windows), so it opens and refreshes when the computer starts.
 
 If Gemini is out of requests for the day, Mimir says so and does not try again until the
 allowance resets, since opening the app again before then would only fail the same way.
-
-The briefing shows the single most significant story in each category, with a
-reading pane beside it. Settings has a theme switch, a significance threshold, control over
-which categories appear and in what order, and a way to clear saved stories.
 
 ## As a desktop app
 
@@ -144,11 +162,11 @@ not inside the app, so updating or reinstalling never wipes them:
 Set `MIMIR_DATA_DIR` to put them somewhere else. Every run also writes `run.log` there, which
 is the first place to look if a refresh did not do what you expected.
 
-On first run the app asks for your API keys rather than showing an empty briefing.
+On first run the app asks for your API key rather than showing an empty briefing.
 
 ## Roadmap
 
-- [x] Fetch headlines from Alpha Vantage across multiple topics
+- [x] Fetch headlines by searching for each category's own words (Google News)
 - [x] Filter out duplicates and known noise (source blocklist and title patterns)
 - [x] AI-assisted significance scoring (Gemini API)
 - [x] Add geopolitical coverage from GDELT
