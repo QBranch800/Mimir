@@ -177,5 +177,3 @@ On first run the app asks for your API key rather than showing an empty briefing
 - [x] Refresh the briefing and save API keys from the page, via a local server
 - [x] Refresh when the app opens, if the briefing is not from today
 - [x] Package as a desktop app for macOS and Windows, built automatically on GitHub
-- [ ] Sign and notarise the builds so they open without a security warning (needs a paid
-      Apple Developer account, and a code signing certificate on Windows)
