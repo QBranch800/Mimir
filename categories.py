@@ -1,32 +1,13 @@
-"""What each category is about and where its stories come from, shared by the filter
-and the scorer.
-
-They are used twice:
-
-- before scoring, `on_topic` decides whether a story is plainly about one of its source's
-  categories. It is strict on purpose: every story it lets through costs part of a
-  Gemini request, and a story that never uses its category's own words is almost never
-  a good one for it.
-- after scoring, `fits` checks the category Gemini assigned: the story's source must be
-  the one chosen for that category, and for monetary policy, US fiscal policy and US
-  macro data it must use that category's words, which is where the lighter model kept
-  filing company stories that merely mentioned a policy. The two US categories must also
-  be about the US, since a French budget or a Japanese PMI uses the same words.
-"""
-
 import re
 
-# Where each category's stories come from: one source each. A story only counts for a
-# category its source was chosen to cover.
 SOURCE = {
     "monetary_policy": "rss",
-    "us_fiscal_policy": "alpha_vantage",
-    "us_macro_data": "alpha_vantage",
+    "us_fiscal_policy": "google",
+    "us_macro_data": "google",
     "geopolitics": "gdelt",
-    "tech_and_ai": "alpha_vantage",
+    "tech_and_ai": "google",
 }
 
-# Core vocabulary: a story genuinely about the category almost always uses one of these.
 CORE = {
     "monetary_policy": [
         r"central banks?", r"federal reserve", r"\bthe fed\b", r"\bfed(?:'s)?\b", r"\bfomc\b",
@@ -37,9 +18,6 @@ CORE = {
         r"\bpowell\b", r"\blagarde\b", r"quantitative (?:easing|tightening)",
         r"policy rate", r"benchmark rate", r"basis points?", r"inflation target",
     ],
-    # Money words, not parliament words: "Senate" and "Congress" turn up in every Capitol
-    # story, from college sports to an Iran war vote, so they cannot show a story is
-    # about budgets, tax or spending.
     "us_fiscal_policy": [
         r"federal budget", r"budget (?:deal|bill|resolution|deficit|request|proposal|office|talks|fight)",
         r"\bdeficits?\b", r"debt (?:ceiling|limit)", r"national debt", r"government shutdown",
@@ -50,7 +28,6 @@ CORE = {
         r"congressional budget office", r"\birs\b", r"federal spending", r"government funding",
         r"funding (?:bill|deadline|lapse|package)", r"white house budget", r"\bomb\b",
         r"tariff revenue", r"\bstimulus\b",
-        # "fiscal" alone also matches "fiscal year", which every defence contract mentions
         r"fiscal (?:policy|package|plan|stimulus|deficit|cliff|hawks?|outlook|position|rules?|responsibility)",
     ],
     "us_macro_data": [
@@ -73,29 +50,24 @@ CORE = {
         r"\bchina\b", r"\brussia\b", r"\bukraine\b", r"\biran\b", r"\bisrael\b",
         r"\bgaza\b", r"\btaiwan\b", r"north korea", r"middle east", r"opec", r"oil",
     ],
-    # AI, chips and their policy. Bare company names are left out: "Apple" or "Amazon"
-    # turn up in hundreds of share-price pieces a day, and a story that matters for this
-    # category nearly always names the AI, chips or rules it is about.
     "tech_and_ai": [
         r"\bai\b", r"artificial intelligence", r"\bchips?\b", r"chipmakers?",
-        r"semiconductors?", r"data cent(?:er|re)s?", r"\bnvidia\b", r"\btsmc\b",
-        r"\bopenai\b", r"\banthropic\b", r"\bdeepmind\b", r"\bchatgpt\b", r"\bllms?\b",
-        r"language models?", r"export controls?", r"antitrust", r"big tech",
+        r"semiconductors?", r"data cent(?:er|re)s?", r"\bllms?\b", r"language models?",
+        r"export controls?", r"antitrust", r"big tech", r"hyperscalers?",
         r"cyber ?attacks?", r"\bhack", r"quantum comput", r"\bcompute\b",
-        r"\bfoundr(?:y|ies)\b",
+        r"\bfoundr(?:y|ies)\b", r"\bcloud\b",
+        r"\bopenai\b", r"\banthropic\b", r"\bdeepmind\b", r"\bxai\b", r"\bchatgpt\b",
+        r"\bmistral\b", r"\bdeepseek\b",
+        r"\bnvidia\b", r"\btsmc\b", r"\bamd\b", r"\bintel\b", r"\bbroadcom\b", r"\basml\b",
+        r"\bmicron\b", r"\bmicrosoft\b", r"\balphabet\b", r"\bgoogle\b",
+        r"amazon web services", r"\baws\b", r"\boracle\b", r"\bcoreweave\b",
     ],
 }
 
 _CORE_RE = {cat: re.compile("|".join(terms), re.I) for cat, terms in CORE.items()}
 
-# Only these categories are checked after scoring: their words are specific enough that a
-# genuine story nearly always uses one. Geopolitics and tech vocabulary is too broad to
-# prove anything, so those are left to the verification pass instead.
 GUARDED = {"monetary_policy", "us_fiscal_policy", "us_macro_data"}
 
-# The two US categories also need the story to be about the US: budget and PMI words read
-# the same in France and Japan, and both got filed as US news before this check existed.
-# "US" is matched case-sensitively, since in lower case it is just the word "us".
 US_ONLY = {"us_fiscal_policy", "us_macro_data"}
 _US_CASED = re.compile(r"\bU\.?S\.?A?\b")
 _US_WORDS = re.compile(
@@ -117,24 +89,16 @@ def _text(article):
 
 
 def categories_of(feed):
-    """The categories a source was chosen to cover, in the briefing's order."""
     return [category for category, source in SOURCE.items() if source == feed]
 
 
 def on_topic(article, category):
-    """Before scoring: does the story use this category's core words, and for the two
-    US categories, is it about the US?"""
     if category in US_ONLY and not is_about_us(article):
         return False
     return bool(_CORE_RE[category].search(_text(article)))
 
 
 def fits(article, category):
-    """After scoring: can the story stand in the category Gemini gave it?
-
-    It must come from the source chosen for that category. Categories outside GUARDED
-    are not checked for words, since theirs are too broad to settle it.
-    """
     if SOURCE.get(category) != article.get("feed"):
         return False
     if category not in GUARDED:
