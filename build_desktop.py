@@ -1,31 +1,19 @@
-"""Build Mimir into a double-clickable desktop app.
-
-Run this on the OS you want to build for: PyInstaller does not cross compile, so a
-Mac produces Mimir.app, Windows produces Mimir.exe and Linux produces a binary. The
-result lands in dist/.
-
-    python3 build_desktop.py
-"""
-
+import importlib.util
 import os
 import shutil
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SEP = ";" if os.name == "nt" else ":"        # PyInstaller's --add-data separator
+SEP = ";" if os.name == "nt" else ":"
 
-# Imported by name at runtime, so PyInstaller cannot see them by following imports.
-PIPELINE_STEPS = ["fetch_rss", "fetch_news", "fetch_gdelt", "filter_news", "score_news"]
+PIPELINE_STEPS = ["fetch_rss", "fetch_google", "fetch_gdelt", "filter_news", "score_news"]
 
-# Shipped alongside the code and only ever read.
 ASSETS = ["index.html", ("assets", "assets")]
 
 
 def main():
-    try:
-        import PyInstaller                    # noqa: F401
-    except ImportError:
+    if importlib.util.find_spec("PyInstaller") is None:
         print("PyInstaller is not installed. Run: pip install pyinstaller pywebview")
         return 1
 
@@ -35,13 +23,12 @@ def main():
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", "Mimir",
-        "--windowed",                          # a real app window, no terminal
+        "--windowed",
         "--noconfirm",
         "--clean",
         os.path.join(HERE, "desktop.py"),
     ]
 
-    # each platform insists on its own icon format, so use one only if it is there
     icon_name = {"darwin": "logo.icns", "win32": "logo.ico"}.get(sys.platform)
     if icon_name:
         icon = os.path.join(HERE, "assets", icon_name)
@@ -57,7 +44,6 @@ def main():
     for module in PIPELINE_STEPS:
         cmd[-1:-1] = ["--hidden-import", module]
 
-    # these are reached dynamically inside their libraries
     for module in ("google.genai", "trafilatura", "dotenv", "flask", "webview"):
         cmd[-1:-1] = ["--hidden-import", module]
 
@@ -77,14 +63,6 @@ def main():
 
 
 def sign_adhoc(app_path):
-    """Sign with an ad-hoc signature, which costs nothing and needs no account.
-
-    Without any signature at all, macOS refuses an app copied from another machine
-    outright ("Mimir is damaged and can't be opened"), which looks like a broken
-    download. Ad-hoc signing turns that into the ordinary unidentified-developer
-    prompt, which a person can get past by right-clicking and choosing Open. Only a
-    paid Developer ID removes the prompt entirely.
-    """
     if not os.path.exists(app_path):
         return
     result = subprocess.run(

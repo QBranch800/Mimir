@@ -6,7 +6,7 @@
 <title>Mimir</title>
 <link rel="icon" href="assets/logo.png">
 <script>
-  // runs before the stylesheet paints, so a chosen theme does not flash the other one
+
   try {
     var t = (JSON.parse(localStorage.getItem("mimir:settings") || "{}") || {}).theme;
     document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
@@ -66,10 +66,8 @@
     text-transform: uppercase; color: var(--ink-3);
   }
 
-  /* ---------- shell ---------- */
   .app { display: grid; grid-template-columns: 196px minmax(0, 1fr) minmax(0, 1.05fr); min-height: 100vh; }
 
-  /* ---------- sidebar ---------- */
   .sidebar { padding: 22px 16px; border-right: 1px solid transparent; }
   .mark {
     width: 46px; height: 46px; border-radius: 13px;
@@ -83,11 +81,25 @@
   .nav button:hover { background: var(--hover); }
   .nav button[aria-current="true"] { background: var(--panel); color: var(--ink); font-weight: 500; }
 
-  /* ---------- list column ---------- */
   .list-col { padding: 26px 34px 60px 10px; min-width: 0; }
   .list-head { margin-bottom: 26px; }
   h1 { font-size: 52px; line-height: 1.02; letter-spacing: -0.035em; margin: 12px 0 8px; font-weight: 700; }
   .tagline { color: var(--ink-2); font-size: 17px; margin: 0; }
+  .tagline-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; }
+  .refresh-control { display: flex; align-items: center; gap: 9px; font-size: 13.5px; color: var(--ink-2); }
+  .refresh-btn {
+    border: 1px solid var(--rule); border-radius: 999px; padding: 5px 13px;
+    font-size: 13px; color: var(--ink-2);
+  }
+  .refresh-btn:hover:not(:disabled) { border-color: var(--ink-3); color: var(--ink); }
+  .refresh-btn:disabled { opacity: 0.5; cursor: default; }
+  .spinner {
+    width: 13px; height: 13px; border-radius: 50%; flex: none;
+    border: 2px solid var(--rule); border-top-color: var(--ink-2);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .refresh-error { font-size: 12.5px; color: #b3341c; }
 
   .story {
     display: grid; grid-template-columns: 52px minmax(0,1fr) 108px;
@@ -116,7 +128,6 @@
   }
   .thumb-empty { width: 108px; height: 104px; border-radius: 3px; background: var(--hover); }
 
-  /* ---------- reading pane ---------- */
   .read-col {
     background: var(--panel); border-left: 1px solid var(--rule);
     padding: 56px 40px 70px; min-width: 0;
@@ -139,6 +150,7 @@
   }
   .read-meta a.action:hover { color: var(--ink); }
   .hero { width: 100%; border-radius: 4px; display: block; margin-bottom: 26px; background: var(--hover); }
+  .hero-stand-in { aspect-ratio: 16 / 9; object-fit: cover; }
 
   .body p { font-size: 15.5px; line-height: 1.62; margin: 0 0 16px; color: var(--ink); }
   .readmore {
@@ -147,8 +159,6 @@
   }
   .readmore:hover { border-color: var(--ink); }
 
-
-  /* ---------- settings ---------- */
   .set-group { border-top: 1px solid var(--rule); padding: 22px 0; max-width: 460px; }
   .set-group h3 { font-size: 15px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
   .set-note { font-size: 13.5px; color: var(--ink-3); margin: 0 0 14px; line-height: 1.45; }
@@ -192,9 +202,6 @@
   button.primary:hover:not(:disabled) { opacity: 0.85; }
   button.primary:disabled { opacity: 0.45; cursor: default; }
   .set-error { font-size: 13px; color: #b3341c; margin: 10px 0 0; }
-  .run-step { margin: 10px 0 0; }
-  .log-line { margin: 6px 0 0; font-size: 12.5px; }
-  .log-line.bad { color: #b3341c; }
 
   .sched-toggle { margin-bottom: 10px; }
   .sched-state { margin: 12px 0 0; }
@@ -224,7 +231,6 @@
   .placeholder { color: var(--ink-3); padding: 60px 0; }
   .dot { opacity: 0.4; }
 
-  /* ---------- responsive ---------- */
   @media (max-width: 1080px) {
     .app { grid-template-columns: 160px minmax(0,1fr); }
     .read-col { display: none; }
@@ -265,7 +271,10 @@
     <div class="list-head">
       <div class="eyebrow" id="today"></div>
       <h1 id="viewTitle">Today</h1>
-      <p class="tagline" id="tagline">What's moving markets today?</p>
+      <div class="tagline-row" id="taglineRow">
+        <p class="tagline">What's moving markets today?</p>
+        <div class="refresh-control" id="refreshControl"></div>
+      </div>
     </div>
     <div id="stories"></div>
   </section>
@@ -278,8 +287,7 @@
 
 <script src="briefing_data.js" onerror="window.MIMIR_DATA_MISSING=true"></script>
 <script>
-// Every category Mimir knows about. Settings decides which of these appear, and in
-// what order; the briefing is the single leading story in each one that is shown.
+
 const ALL_CATEGORIES = [
   { key: "monetary_policy",  label: "Monetary policy" },
   { key: "us_fiscal_policy", label: "US fiscal policy" },
@@ -289,41 +297,65 @@ const ALL_CATEGORIES = [
 ];
 const CATEGORY_LABEL = Object.fromEntries(ALL_CATEGORIES.map(c => [c.key, c.label]));
 
-// Articles scored before score_news.py tagged categories only carry the fetch topic,
-// which says where an article came from rather than what it is about.
-const TOPIC_FALLBACK = {
-  economy_monetary: "monetary_policy",
-  economy_fiscal:   "us_fiscal_policy",
-  economy_macro:    "us_macro_data",
-  geopolitics:      "geopolitics",
-  technology:       "tech_and_ai",
-};
+const categoryImage = key => CATEGORY_LABEL[key] ? `assets/categories/${key}.jpg` : null;
+
 const DEFAULTS = {
-  theme: "light",                                        // light | dark
-  minScore: 4,                                           // significance a story must reach
-  categories: ALL_CATEGORIES.map(c => c.key),            // which categories, in which order
+  theme: "light",
+  minScore: 4,
+  categories: ALL_CATEGORIES.map(c => c.key),
 };
 
 let articles = [];
-let server = null;   // status from app.py, or null when opened as a file
-let view = "today";       // today | saved | settings
+let server = null;
+let view = "today";
 let selectedUrl = null;
 let saved = loadSaved();
 let settings = loadSettings();
 
 function loadSaved() {
-  try { return new Set(JSON.parse(localStorage.getItem("mimir:saved") || "[]")); }
-  catch { return new Set(); }
+  const map = new Map();
+  try {
+    for (const entry of JSON.parse(localStorage.getItem("mimir:saved") || "[]")) {
+      if (typeof entry === "string") map.set(entry, null);
+      else if (entry && entry.url) map.set(entry.url, entry);
+    }
+  } catch {}
+  return map;
 }
 function persistSaved() {
-  try { localStorage.setItem("mimir:saved", JSON.stringify([...saved])); } catch {}
+  try {
+    localStorage.setItem("mimir:saved", JSON.stringify([...saved].map(([url, copy]) => copy || url)));
+  } catch {}
+}
+const SAVED_FIELDS = ["title", "url", "article_url", "source", "time_published", "summary",
+                      "banner_image", "category", "significance", "coverage_count", "explainer"];
+function copyOf(a) {
+  return Object.fromEntries(SAVED_FIELDS.filter(k => k in a).map(k => [k, a[k]]));
+}
+
+function savedStories() {
+  const out = [];
+  for (const [url, copy] of saved) {
+    const story = articles.find(a => a.url === url) || copy;
+    if (story) out.push(story);
+  }
+  return out.reverse();
+}
+
+function fillSavedCopies() {
+  let changed = false;
+  for (const [url, copy] of saved) {
+    const a = !copy && articles.find(x => x.url === url);
+    if (a) { saved.set(url, copyOf(a)); changed = true; }
+  }
+  if (changed) persistSaved();
 }
 
 function loadSettings() {
   let stored = {};
   try { stored = JSON.parse(localStorage.getItem("mimir:settings") || "{}"); } catch {}
   const s = { ...DEFAULTS, ...stored };
-  // drop anything unrecognised, so an old saved list cannot break the briefing
+
   const known = new Set(ALL_CATEGORIES.map(c => c.key));
   s.categories = Array.isArray(s.categories) ? s.categories.filter(k => known.has(k)) : [...DEFAULTS.categories];
   s.minScore = Number.isFinite(+s.minScore) ? Math.min(10, Math.max(1, +s.minScore)) : DEFAULTS.minScore;
@@ -338,14 +370,14 @@ function applyTheme() {
   document.documentElement.setAttribute("data-theme", settings.theme);
 }
 
-// the categories to show, in the saved order
 function activeCategories() {
   return settings.categories
     .map(k => ALL_CATEGORIES.find(c => c.key === k))
     .filter(Boolean);
 }
 
-const categoryOf = a => a.category || TOPIC_FALLBACK[a.topic] || "none";
+const categoryOf = a => a.category || "none";
+const webLink = u => /^https?:\/\//i.test(u || "") ? u : null;
 
 function parseDate(stamp) {
   const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})/.exec(stamp || "");
@@ -365,10 +397,8 @@ function longDate(stamp) {
     { day: "numeric", month: "long", year: "numeric" }).toUpperCase() : "";
 }
 
-// The briefing is the single leading story in each category: highest significance,
-// breaking ties on how many outlets carried it.
 function pool() {
-  if (view === "saved") return articles.filter(a => saved.has(a.url));
+  if (view === "saved") return savedStories();
 
   const lead = [];
   for (const c of activeCategories()) {
@@ -398,21 +428,18 @@ function settingsGroup(title, note) {
 }
 
 function renderSettings(host) {
-  // These two only work when app.py is serving the page: a file opened from disk
-  // has nothing to run the pipeline or write .env.
+
   if (server) {
-    host.append(renderRefresh());
     host.append(renderRefreshOnOpen());
     host.append(renderKeys());
   } else {
     const g = settingsGroup("Refreshing and API keys",
       "Open Mimir through the local server to refresh the briefing and save your API " +
       "keys here. Run python3 app.py in the project folder, then go to " +
-      "http://127.0.0.1:5000.");
+      "http://127.0.0.1:5111.");
     host.append(g);
   }
 
-  // Appearance
   const appearance = settingsGroup("Appearance");
   const themes = el("div", "seg");
   for (const [value, label] of [["light", "Light"], ["dark", "Dark"]]) {
@@ -424,7 +451,6 @@ function renderSettings(host) {
   appearance.append(themes);
   host.append(appearance);
 
-  // Significance threshold
   const counts = ALL_CATEGORIES.length;
   const wouldShow = ALL_CATEGORIES.filter(c =>
     articles.some(a => a.significance >= settings.minScore && categoryOf(a) === c.key)).length;
@@ -440,7 +466,6 @@ function renderSettings(host) {
   thresh.append(row);
   host.append(thresh);
 
-  // Categories: which, and in what order
   const cats = settingsGroup("Categories",
     "Choose which categories appear in the briefing, and the order they appear in.");
   const list = el("div", "cat-list");
@@ -476,57 +501,44 @@ function renderSettings(host) {
   cats.append(list);
   host.append(cats);
 
-  // Saved stories
+  const savedCount = savedStories().length;
   const savedGroup = settingsGroup("Saved stories",
-    saved.size ? `${saved.size} ${saved.size === 1 ? "story" : "stories"} saved on this device.`
+    savedCount ? `${savedCount} ${savedCount === 1 ? "story" : "stories"} saved on this device.`
                : "Nothing saved on this device.");
   const clear = el("button", "danger", "Clear saved stories");
   clear.disabled = !saved.size;
   clear.onclick = () => {
-    if (!confirm(`Remove all ${saved.size} saved stories? This cannot be undone.`)) return;
+    if (!confirm(`Remove all ${savedCount} saved stories? This cannot be undone.`)) return;
     saved.clear(); persistSaved(); render();
   };
   savedGroup.append(clear);
   host.append(savedGroup);
 }
 
-function renderRefresh() {
-  const g = settingsGroup("Briefing");
-  const when = server.dataUpdated
-    ? `Last refreshed ${relativeFromSeconds(server.dataUpdated)}.`
-    : "No briefing has been built yet.";
-  g.append(el("p", "set-note", when));
-
-  const btn = el("button", "primary", server.running ? "Refreshing…" : "Refresh now");
-  btn.disabled = !!server.running;
+function renderRefreshControl() {
+  const host = document.getElementById("refreshControl");
+  host.replaceChildren();
+  if (!server) return;
+  if (server.running) {
+    host.append(el("span", "spinner"), el("span", null, "Fetching Today's News"));
+    return;
+  }
+  const btn = el("button", "refresh-btn", "Refresh now");
   btn.onclick = async () => {
     btn.disabled = true;
-    btn.textContent = "Starting…";
     try {
       const r = await fetch("/api/refresh", { method: "POST" });
-      if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+      if (!r.ok && r.status !== 409) throw new Error();
+      server.running = true;
+      renderRefreshControl();
       pollStatus();
-    } catch (err) {
+    } catch {
       btn.disabled = false;
-      btn.textContent = "Refresh now";
-      g.append(el("p", "set-error", String(err.message || err)));
+      host.append(el("span", "refresh-error", "Couldn't start a refresh."));
     }
   };
-  g.append(btn);
-
-  if (server.running && server.step) {
-    const who = server.trigger === "open" ? " (started when Mimir opened)" : "";
-    g.append(el("p", "set-note run-step",
-      `${server.step}…  this takes a few minutes${who}.`));
-  }
-  for (const entry of server.log || []) {
-    g.append(el("p", "set-note log-line" + (entry.ok ? "" : " bad"),
-      `${entry.ok ? "✓" : "✕"}  ${entry.step}${entry.detail ? " — " + entry.detail : ""}`));
-  }
-  if (server.ok === false && !server.running) {
-    g.append(el("p", "set-error", "The refresh did not finish. See the steps above."));
-  }
-  return g;
+  host.append(btn);
+  if (server.ok === false) host.append(el("span", "refresh-error", "The last refresh didn't finish."));
 }
 
 function renderRefreshOnOpen() {
@@ -609,16 +621,6 @@ function renderKeys() {
   return g;
 }
 
-function relativeFromSeconds(epochSeconds) {
-  const mins = Math.round((Date.now() / 1000 - epochSeconds) / 60);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  if (mins < 60 * 24) return `${Math.round(mins / 60)}h ago`;
-  return `${Math.round(mins / 1440)}d ago`;
-}
-
-// While a refresh runs, keep asking the server how it is going, then reload the
-// briefing once it finishes.
 let pollTimer = null;
 async function pollStatus() {
   try {
@@ -626,14 +628,15 @@ async function pollStatus() {
     if (!r.ok) return;
     const wasRunning = server && server.running;
     server = await r.json();
-    if (view === "settings") render();
     if (server.running) {
       clearTimeout(pollTimer);
       pollTimer = setTimeout(pollStatus, 2000);
     } else if (wasRunning) {
-      await loadArticles();      // the run finished: pick up the new briefing
-      render();
+      await loadArticles();
     }
+    if (view === "settings" || (wasRunning && !server.running)) render();
+    else renderRefreshControl();
+    if (!articles.length && view === "today") renderWelcome();
   } catch {}
 }
 
@@ -647,7 +650,6 @@ function move(key, delta) {
   saveSettings(); render();
 }
 
-// Cut at a word boundary and say so, rather than stopping mid-word.
 function trim(textValue, limit) {
   const t = (textValue || "").trim();
   if (t.length <= limit) return t;
@@ -656,15 +658,11 @@ function trim(textValue, limit) {
   return (lastSpace > limit * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[,;:.\s]+$/, "") + "…";
 }
 
-// The standfirst takes whole sentences off the front; whatever is left becomes the body, so
-// the same text is never shown twice or cut off halfway. Both halves are slices of the same
-// string, so no wording can be lost between them.
 function splitSummary(textValue, leadLimit = 300, leadMin = 120) {
   const t = (textValue || "").trim();
   if (!t) return { lead: "", rest: [] };
   if (t.length <= leadLimit) return { lead: t, rest: [] };
 
-  // the last sentence ending that still fits, ignoring ones so early they leave a stub
   let cut = -1;
   const ends = /[.!?]["'’”)\]]?(?=\s|$)/g;
   let m;
@@ -673,12 +671,14 @@ function splitSummary(textValue, leadLimit = 300, leadMin = 120) {
     if (end > leadLimit) break;
     if (end >= leadMin || cut < 0) cut = end;
   }
-  if (cut < 0) {                       // no sentence break in range: fall back to a word break
+  let midSentence = false;
+  if (cut < 0) {
     const space = t.lastIndexOf(" ", leadLimit);
     cut = space > leadLimit * 0.5 ? space : leadLimit;
+    midSentence = true;
   }
 
-  const lead = t.slice(0, cut).trim();
+  const lead = t.slice(0, cut).trim().replace(/[,;:]$/, "") + (midSentence ? "…" : "");
   const restText = t.slice(cut).trim();
   const rest = restText ? restText.split(/\n{2,}/).map(p => p.trim()).filter(Boolean) : [];
   return { lead, rest };
@@ -688,7 +688,8 @@ function renderNav() {
   const nav = document.getElementById("nav");
   nav.replaceChildren();
   for (const [key, label] of [["today","Today"],["saved","Saved"],["settings","Settings"]]) {
-    const b = el("button", null, key === "saved" && saved.size ? `${label} (${saved.size})` : label);
+    const count = key === "saved" ? savedStories().length : 0;
+    const b = el("button", null, count ? `${label} (${count})` : label);
     b.setAttribute("aria-current", String(view === key));
     b.onclick = () => { view = key; selectedUrl = null; render(); };
     nav.append(b);
@@ -741,12 +742,17 @@ function renderStories() {
     mid.append(meta);
     row.append(mid);
 
-    if (a.banner_image) {
+    const fallback = categoryImage(cat.key);
+    const src = a.banner_image || fallback;
+    if (src) {
       const img = el("img", "thumb");
-      img.src = a.banner_image;
+      img.src = src;
       img.alt = "";
       img.loading = "lazy";
-      img.onerror = () => img.replaceWith(el("div", "thumb-empty"));
+      img.onerror = () => {
+        if (fallback && !img.dataset.fallback) { img.dataset.fallback = "1"; img.src = fallback; }
+        else img.replaceWith(el("div", "thumb-empty"));
+      };
       row.append(img);
     } else {
       row.append(el("div", "thumb-empty"));
@@ -760,7 +766,8 @@ function renderReader() {
   host.replaceChildren();
 
   const list = pool();
-  const article = articles.find(a => a.url === selectedUrl) || list[0];
+
+  const article = [...list, ...articles].find(a => a.url === selectedUrl) || list[0];
   if (!article) {
     host.append(el("p", "placeholder", "Select a story to read."));
     return;
@@ -785,26 +792,39 @@ function renderReader() {
 
   const saveBtn = el("button", "action", saved.has(article.url) ? "Saved" : "Save");
   saveBtn.onclick = () => {
-    saved.has(article.url) ? saved.delete(article.url) : saved.add(article.url);
+    saved.has(article.url) ? saved.delete(article.url) : saved.set(article.url, copyOf(article));
     persistSaved(); render();
   };
-  const open = el("a", "action", "Open original");
-  open.href = article.url; open.target = "_blank"; open.rel = "noopener noreferrer";
-  meta.append(saveBtn, open);
+  const link = webLink(article.article_url) || webLink(article.url);
+  meta.append(saveBtn);
+  if (link) {
+    const open = el("a", "action", "Open original");
+    open.href = link; open.target = "_blank"; open.rel = "noopener noreferrer";
+    meta.append(open);
+  }
   host.append(meta);
 
-  if (article.banner_image) {
-    const hero = el("img", "hero");
-    hero.src = article.banner_image; hero.alt = "";
-    hero.onerror = () => hero.remove();
+  const fallback = categoryImage(categoryOf(article));
+  const heroSrc = article.banner_image || fallback;
+  if (heroSrc) {
+    const hero = el("img", article.banner_image ? "hero" : "hero hero-stand-in");
+    hero.src = heroSrc; hero.alt = "";
+    hero.onerror = () => {
+      if (fallback && !hero.dataset.fallback) {
+        hero.dataset.fallback = "1"; hero.className = "hero hero-stand-in"; hero.src = fallback;
+      } else hero.remove();
+    };
     host.append(hero);
   }
 
   const body = el("div", "body");
-  for (const paragraph of rest) body.append(el("p", null, paragraph));
-  const more = el("a", "readmore", `Read the full article at ${article.source} →`);
-  more.href = article.url; more.target = "_blank"; more.rel = "noopener noreferrer";
-  body.append(more);
+  const explained = (article.explainer || "").split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+  for (const paragraph of explained.length ? explained : rest) body.append(el("p", null, paragraph));
+  if (link) {
+    const more = el("a", "readmore", `Read the full article at ${article.source} →`);
+    more.href = link; more.target = "_blank"; more.rel = "noopener noreferrer";
+    body.append(more);
+  }
   host.append(body);
 }
 
@@ -814,7 +834,8 @@ function render() {
       { weekday: "long", day: "numeric", month: "long", year: "numeric" }).toUpperCase();
   document.getElementById("viewTitle").textContent =
     view === "saved" ? "Saved" : view === "settings" ? "Settings" : "Today";
-  document.getElementById("tagline").style.display = view === "today" ? "" : "none";
+  document.getElementById("taglineRow").style.display = view === "today" ? "" : "none";
+  renderRefreshControl();
   renderNav(); renderStories(); renderReader();
 }
 
@@ -839,11 +860,10 @@ async function loadArticles() {
   articles.sort((a, b) =>
     b.significance - a.significance || (b.coverage_count || 0) - (a.coverage_count || 0)
     || (b.time_published || "").localeCompare(a.time_published || ""));
+  fillSavedCopies();
   return true;
 }
 
-// app.py answers /api/status; opened as a plain file, nothing does, and the page
-// carries on without the features that need a server.
 async function detectServer() {
   try {
     const r = await fetch("/api/status", { cache: "no-store" });
@@ -851,8 +871,6 @@ async function detectServer() {
   } catch {}
 }
 
-// Nothing to read yet. Say what is actually missing rather than "no briefing",
-// because on a first run the answer is usually "you have not added your keys".
 function renderWelcome() {
   const host = document.getElementById("stories");
   host.replaceChildren();
@@ -872,9 +890,10 @@ function renderWelcome() {
     box.append(
       el("h2", null, "Welcome to Mimir"),
       el("p", null,
-        `Mimir needs ${missing.length === 1 ? "one more free API key" : "a few free API keys"} ` +
+        `Mimir needs ${missing.length === 1 ? "a free API key" : "a few free API keys"} ` +
         `before it can build your first briefing: ${missing.join(", ")}.`),
-      el("p", null, "Open Settings to paste them in. They are stored on this machine only."),
+      el("p", null, `Open Settings to paste ${missing.length === 1 ? "it" : "them"} in. ` +
+                    "Keys are stored on this machine only."),
     );
     const go = el("button", "primary", "Open Settings");
     go.onclick = () => { view = "settings"; render(); };
@@ -882,14 +901,13 @@ function renderWelcome() {
   } else if (server.running) {
     box.append(
       el("h2", null, "Building your first briefing"),
-      el("p", null, `${server.step || "Working"}… this takes a few minutes. ` +
-                    "The stories will appear here on their own."),
+      el("p", null, "The stories will appear here on their own."),
     );
   } else {
     box.append(
       el("h2", null, "Ready when you are"),
-      el("p", null, "Your keys are saved. Build the first briefing now, or wait for the " +
-                    "daily refresh."),
+      el("p", null, "Your key is saved. Build the first briefing now, or it will build " +
+                    "itself the next time you open Mimir."),
     );
     const go = el("button", "primary", "Build it now");
     go.onclick = async () => {
@@ -912,6 +930,7 @@ async function load() {
   }
   render();
   if (server && server.running) pollStatus();
+  else if (server) setTimeout(pollStatus, 2500);
 }
 load();
 </script>

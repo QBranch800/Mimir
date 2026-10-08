@@ -1,7 +1,5 @@
 name: Build desktop apps
 
-# PyInstaller cannot cross compile, so each app has to be built on its own OS.
-# GitHub runs both for us: start this from the Actions tab, or push a v* tag.
 on:
   workflow_dispatch:
   push:
@@ -11,7 +9,7 @@ on:
 jobs:
   build:
     strategy:
-      fail-fast: false        # a failure on one OS should not hide the other's result
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest
@@ -63,26 +61,21 @@ jobs:
             APP="dist/Mimir/Mimir.exe"; [ -f "$APP" ] || APP="dist/Mimir.exe"
           fi
 
-          # --step needs no window, so this works on a runner with no display.
-          # Checked by exit code and by what lands on disk rather than by console
-          # output, because a windowed build may have no usable stdout.
           set +e
-          "$APP" --step fetch_news
+          "$APP" --step score_news
           code=$?
           set -e
 
           if [ "$code" -eq 0 ]; then
-            echo "FAIL: fetching succeeded with no key configured"
+            echo "FAIL: scoring succeeded with no key configured"
             exit 1
           fi
-          if [ -f "$MIMIR_DATA_DIR/results.json" ]; then
-            echo "FAIL: it wrote news data with no key configured"
+          if [ -f "$MIMIR_DATA_DIR/scored.json" ]; then
+            echo "FAIL: it wrote a briefing with no key configured"
             exit 1
           fi
-          echo "Refused to fetch without a key, and wrote nothing. Correct."
+          echo "Refused to score without a key, and wrote nothing. Correct."
 
-          # The RSS feeds need no key, so this is the one step CI can run for real: it
-          # proves the packaged app can make network requests and parse feeds.
           "$APP" --step fetch_rss
           test -s "$MIMIR_DATA_DIR/rss_results.json" \
             || { echo "FAIL: fetching the RSS feeds produced nothing"; exit 1; }
@@ -93,7 +86,6 @@ jobs:
         run: |
           mkdir -p upload
           if [ "$RUNNER_OS" = "macOS" ]; then
-            # ditto preserves the bundle's structure and permissions; zip does not
             ditto -c -k --keepParent dist/Mimir.app upload/Mimir-macOS.zip
           else
             powershell -Command "Compress-Archive -Path dist/Mimir/* -DestinationPath upload/Mimir-Windows.zip" \
@@ -107,14 +99,12 @@ jobs:
           path: upload/*
           retention-days: 14
 
-  # Artifacts above expire and need a GitHub login to fetch. A release gives the two
-  # builds a permanent public link, which is what you can actually send someone.
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
-      contents: write        # needed to create the release
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -144,5 +134,5 @@ jobs:
             - **Windows**: SmartScreen shows "Windows protected your PC". Choose More info,
               then Run anyway.
 
-            Mimir needs two free API keys, from alphavantage.co and aistudio.google.com.
-            It asks for them on first run, and keeps them on your machine.
+            Mimir needs one free API key, for Gemini, from aistudio.google.com. It asks for
+            it on first run, and keeps it on your machine.

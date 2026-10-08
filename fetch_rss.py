@@ -1,11 +1,3 @@
-"""Fetch monetary policy headlines from central banks and chosen news desks, over RSS.
-
-This is the monetary policy source. The feeds need no API key, are updated within
-minutes, and come from outlets chosen by hand, so none of them is SEO filler. The
-central banks publish their own decisions and speeches; the news desks carry what
-those mean, which on 09-24 was where the day's best central bank stories were.
-"""
-
 import datetime
 import email.utils
 import html
@@ -13,54 +5,50 @@ import json
 import re
 import time
 import xml.etree.ElementTree as ET
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import urlparse
 
 import requests
 
 import paths
+from pages import HEADERS, canonical_url
 
-# (source name, url). Each was checked for how many central bank stories it carries;
-# general business and world feeds that carried none were dropped, and so was the Bank
-# of Japan's, which is mostly statistics notices. The news desks report its decisions.
 FEEDS = [
-    # the central banks themselves
     ("Federal Reserve", "https://www.federalreserve.gov/feeds/press_monetary.xml"),
     ("Federal Reserve", "https://www.federalreserve.gov/feeds/speeches.xml"),
     ("European Central Bank", "https://www.ecb.europa.eu/rss/press.html"),
     ("Bank of England", "https://www.bankofengland.co.uk/rss/news"),
-    # news desks that report on them
-    ("CNBC", "https://www.cnbc.com/id/10000664/device/rss/rss.html"),          # finance
-    ("CNBC", "https://www.cnbc.com/id/20910258/device/rss/rss.html"),          # economy
+    ("CNBC", "https://www.cnbc.com/id/10000664/device/rss/rss.html"),
+    ("CNBC", "https://www.cnbc.com/id/20910258/device/rss/rss.html"),
     ("The Guardian", "https://www.theguardian.com/business/economics/rss"),
     ("BBC News", "https://feeds.bbci.co.uk/news/business/rss.xml"),
-    ("NPR", "https://feeds.npr.org/1017/rss.xml"),                              # economy
+    ("NPR", "https://feeds.npr.org/1017/rss.xml"),
 ]
 TOPIC = "monetary_policy"
 
-# some sites refuse requests that do not look like a browser
-HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-                         "(KHTML, like Gecko) Chrome/126 Safari/537.36"}
 ATOM = "{http://www.w3.org/2005/Atom}"
 MEDIA = "{http://search.yahoo.com/mrss/}"
 DC = "{http://purl.org/dc/elements/1.1/}"
 
 
 def clean(text):
-    """Feed text often carries HTML tags and entities; the page wants plain text."""
     text = re.sub(r"<[^>]+>", " ", html.unescape(text or ""))
     return " ".join(text.split())
 
 
-def canonical_url(url):
-    """Drop tracking parameters, so the same article from two feeds counts once."""
-    parts = urlparse(url.strip())
-    query = [(k, v) for k, v in parse_qsl(parts.query)
-             if not k.lower().startswith(("utm_", "at_"))]
-    return urlunparse(parts._replace(query=urlencode(query), fragment=""))
+def describe(text):
+    text = re.sub(r"<ul\b.*?</ul>", " ", html.unescape(text or ""), flags=re.S | re.I)
+    paragraphs = []
+    for block in re.split(r"</p>|<br\s*/?>", text, flags=re.I):
+        paragraph = clean(block)
+        if paragraph and not re.search(r"[.!?…\"'”’)]$", paragraph):
+            paragraph += "."
+        if paragraph:
+            paragraphs.append(paragraph)
+    summary = re.sub(r"\s*Continue reading\W*$", "", " ".join(paragraphs))
+    return summary[:600]
 
 
 def published(item):
-    """The item's publication time as the pipeline's YYYYMMDDTHHMMSS, in UTC."""
     for tag in ("pubDate", DC + "date", ATOM + "published", ATOM + "updated"):
         raw = (item.findtext(tag) or "").strip()
         if not raw:
@@ -111,7 +99,7 @@ def parse(source, content):
             "url": canonical_url(url),
             "source": source,
             "time_published": published(item),
-            "summary": clean(item.findtext("description") or item.findtext(ATOM + "summary"))[:600],
+            "summary": describe(item.findtext("description") or item.findtext(ATOM + "summary")),
             "banner_image": image(item),
         })
     return articles

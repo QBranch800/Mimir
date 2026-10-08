@@ -1,10 +1,3 @@
-"""Run the whole Mimir pipeline in order.
-
-The fetch steps are optional: if one source is rate limited or its key is missing,
-the run carries on with whatever the others returned. Filtering and
-scoring are required, because without them there is no briefing to show.
-"""
-
 import os
 import subprocess
 import sys
@@ -13,10 +6,9 @@ import time
 PYTHON = sys.executable
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# (script, label, required)
 STEPS = [
     ("fetch_rss.py",     "Monetary policy feeds",     False),
-    ("fetch_news.py",    "Alpha Vantage headlines",   False),
+    ("fetch_google.py",  "Google News headlines",     False),
     ("fetch_gdelt.py",   "GDELT geopolitics",         False),
     ("filter_news.py",   "Filtering and deduping",    True),
     ("score_news.py",    "Scoring with Gemini",       True),
@@ -34,8 +26,7 @@ def run(script, label):
 
 
 def main():
-    print("Running the Mimir pipeline. This takes a few minutes, mostly waiting "
-          "out rate limits.")
+    print("Running the Mimir pipeline. This takes a minute or two.")
     failed = []
 
     for script, label, required in STEPS:
@@ -59,7 +50,7 @@ def main():
         print("The briefing is built from whatever did work.")
     else:
         print("Finished. Every step completed.")
-    print("Open index.html to read the briefing.")
+    print("Read it with: python3 app.py, then http://127.0.0.1:5111 (or open index.html).")
     return 0
 
 
