@@ -2,23 +2,19 @@ import hashlib
 import json
 import os
 import time
-import requests
-import trafilatura
+from concurrent.futures import ThreadPoolExecutor
+
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
 
 import categories
+import pages
 import paths
 
-# override, so the key saved in the data directory always wins over one that
-# happens to be in the environment already
 load_dotenv(paths.data(".env"), override=True)
 
-# Refuse to call the API without a key rather than sending a request that is bound to
-# be rejected. This makes a first run say plainly what is missing, and makes it obvious
-# if a key is somehow coming from somewhere other than the file the person edited.
 _key = os.getenv("GEMINI_API_KEY")
 if not _key:
     raise SystemExit(
@@ -33,32 +29,15 @@ print(f"Using Gemini key from "
       f"(ends ...{_key[-4:]})")
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-# Tried in order. gemini-3.5-flash-lite is the main model: it answered when the full
-# Flash models refused with 503 "high demand" all day, and judged the finalists
-# correctly. The older lite model is the fallback for when it is busy. Gemini counts its
-# free daily allowance per model, so the fallback has its own 20 requests.
 MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
-# Not one big batch. A 134 article request was refused with 503 "high demand" over and
-# over while a 5 article one to the same model went through seconds later, so large
-# requests get shed when the service is busy, whatever the token limits allow. Batches
-# of this size have been served reliably. The filter sends at most ten per category, so
-# a whole day normally fits in one.
 BATCH_SIZE = 50
 MAX_ATTEMPTS = 3
-RETRY_CODES = {429}          # 503 is handled separately: it is not worth retrying
-# Every call counts against its model's 20 a day, including ones the server fails.
-# A clean run costs two or three: one batch, a second pass for pages without a summary,
-# and the finalist check. This leaves room for a busy model without letting a bad day
-# run away with the allowance.
+RETRY_CODES = {429}
 REQUEST_BUDGET = 8
-# Gemini's refusals come and go within minutes. Before giving up on articles, and before
-# the finalist check, wait this long and give every model one more chance.
 SECOND_CHANCE_WAIT = 30
 VERIFY_WAIT = 20
 MIN_SCORE = 4
-TEXT_CANDIDATES = 20
-TITLE_STAGE_CHARS = 300
-TEXT_STAGE_CHARS = 1500
+SUMMARY_CHARS = 300
 
 SYSTEM_PROMPT = """You rate news articles for a daily briefing that covers exactly five categories.
 Score an article's significance only in relation to these:
@@ -70,11 +49,14 @@ Score an article's significance only in relation to these:
    economic releases.
 4. Geopolitics: events with material economic or market relevance, such as conflicts,
    sanctions, elections, trade policy, or major diplomatic developments.
-5. Tech and AI: technology developments with material economic or market relevance, such as
-   major AI capability or infrastructure announcements, semiconductor capacity and supply,
-   large capital investment in data centres or fabrication, and technology regulation or
-   antitrust. Product launches, app updates, gadget reviews, and routine single-company
-   earnings or share price moves do not belong here.
+5. Tech and AI: major moves by the companies that shape AI and computing: the big AI labs
+   (OpenAI, Anthropic, Google DeepMind, Meta, xAI and their peers), the hyperscalers and
+   cloud giants (Microsoft, Amazon, Google, Oracle), and the chipmakers (Nvidia, TSMC, AMD,
+   Intel, Broadcom, ASML). That means new frontier models, very large compute, chip or data
+   centre deals, chip capacity and supply, and serious AI safety or security incidents; plus
+   technology regulation, export controls and antitrust. Stock picks, dividends, share price
+   moves, analyst ratings, routine earnings, and minor product or app updates do not belong
+   here.
 
 An article that does not fall into any of these five categories is noise for this briefing,
 whatever else it is about, and should score 1-2 even if it involves a well-known company or a
@@ -98,6 +80,15 @@ weighty the backdrop it cites. For example:
 - "Why is X stock surging premarket?" is a share price move. It is always "none".
 The same story told the other way round does belong: "US and China agree agricultural
 concessions at summit" is geopolitics, because the agreement is the subject.
+
+Tech and AI is the exception to the one-company rule, because there a single company's move
+is often the news itself. A major move by one of the AI labs, hyperscalers, cloud giants or
+chipmakers named above belongs in tech_and_ai: "Anthropic signs $11.6 billion computing deal
+with Akamai", "OpenAI releases a new frontier model", "Rogue AI model breaks into a government
+website". If a headline leads with the share price but the cause is such a move, as in
+"Akamai shares jump 26% after $11.6 billion Anthropic deal", judge the move. Their share
+prices, valuations, dividends, analyst ratings and stock picks are still "none", as are
+smaller companies' products and contracts.
 
 Keep to the level each category names:
 - US fiscal policy means the US federal government: Congress, the Treasury, the White House
@@ -137,37 +128,38 @@ Each article line shows: id | source | how many outlets covered the story | titl
 Give a one-sentence reason for each score. Return one entry per article, using the id given."""
 
 
-# A score only means something under the prompt that produced it. Stamping each one
-# with a fingerprint of the prompt means tuning the prompt automatically redoes the
-# stale scores, rather than someone having to remember to clear them by hand.
 PROMPT_VERSION = hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()[:12]
 
 
 CATEGORY_KEYS = ["monetary_policy", "us_fiscal_policy", "us_macro_data", "geopolitics",
                  "tech_and_ai"]
 
-# A second, much smaller request that checks only the stories the briefing will actually
-# show. The lighter models misfile stories when judging fifty at once, but get the same
-# stories right when judging a handful, so the check is cheap and catches what matters.
 VERIFY_PROMPT = """You check the finalists of a daily market briefing before anyone reads
 them. Each line gives an article and the category it was filed under. Say which category
 the article genuinely belongs to: usually the one it was filed under, sometimes another,
 often none.
 
 - monetary_policy: central banks setting interest rates, guidance, balance sheets or money
-  itself (the Fed, ECB, Bank of England, Bank of Japan and their peers). Commercial banks,
-  even building money-like products, are not monetary policy.
+  itself (the Fed, ECB, Bank of England, Bank of Japan and their peers), including what their
+  leaders say about policy in speeches, testimony and minutes. Commercial banks, even
+  building money-like products, are not monetary policy.
 - us_fiscal_policy: the US federal government's budget, taxes, spending and debt (Congress,
   the Treasury, the White House budget). Not states, cities, utilities or fee schedules.
 - us_macro_data: US economic releases and what they show: CPI, jobs, GDP, PMI, retail sales.
 - geopolitics: conflicts, sanctions, elections, trade policy and diplomacy with economic or
   market weight.
-- tech_and_ai: technology with economic weight: AI capability or infrastructure, chips and
-  their supply, large data centre or chip plant investment, tech regulation and antitrust.
+- tech_and_ai: major moves by the big AI labs (OpenAI, Anthropic, Google DeepMind, Meta, xAI),
+  the hyperscalers and cloud giants (Microsoft, Amazon, Google, Oracle) and the chipmakers
+  (Nvidia, TSMC, AMD, Intel, Broadcom, ASML): new frontier models, very large compute, chip
+  or data centre deals, chip supply, serious AI safety or security incidents; plus tech
+  regulation, export controls and antitrust.
 
 The answer is "none" when the article is really about one company (its shares, valuation,
 earnings, analyst ratings, contracts, products or prospects), even if it names a policy, a
-war or a data release as background. It is also "none" when the article only nearly fits.
+war or a data release as background. The exception is tech_and_ai: a major move by one of
+the companies named there is the news itself, even when the headline leads with a share
+price. Their share prices, dividends and stock picks are still none. It is also "none" when
+the article only nearly fits.
 When unsure, say none: the briefing would rather show nothing in a category than something
 wrong.
 
@@ -177,7 +169,22 @@ earlier one. Otherwise set it to -1.
 Give a one-sentence reason. Return one entry per article, using the id given."""
 
 VERIFY_VERSION = hashlib.sha256(VERIFY_PROMPT.encode()).hexdigest()[:12]
-FINALISTS_PER_CATEGORY = 3   # the leader plus two in reserve, in case the leader fails
+FINALISTS_PER_CATEGORY = 3
+
+EXPLAIN_PROMPT = """You write the short explanation shown under each story in a daily market
+briefing. Each article comes with its category, outlet and headline, a short summary, and,
+when the outlet allows it, part of the article's own text.
+
+For each one, write three to five plain sentences, about 60 to 100 words, saying what
+happened and why it matters for markets or the economy. Use only facts stated in what you
+are given: never add numbers, names, dates or causes it does not contain. If you are given
+little more than a headline, write one or two sentences that explain it without adding
+anything. Do not open by repeating the headline.
+
+Return one entry per article, using the id given."""
+
+EXPLAIN_VERSION = hashlib.sha256(EXPLAIN_PROMPT.encode()).hexdigest()[:12]
+ARTICLE_CHARS = 1500
 
 
 class Verdict(BaseModel):
@@ -185,6 +192,11 @@ class Verdict(BaseModel):
     category: str
     same_event_as: int
     reason: str
+
+
+class Explanation(BaseModel):
+    id: int
+    explainer: str
 
 
 class Score(BaseModel):
@@ -197,23 +209,17 @@ class Score(BaseModel):
 
 requests_made = 0
 out_of_quota = False
-exhausted = set()            # models that have run out of today's allowance
-overloaded = set()           # models that refused with 503 earlier in this run
-last_model = None            # which model answered the most recent batch
+exhausted = set()
+overloaded = set()
+last_model = None
 
 
 def is_daily_quota(error):
-    """A daily quota 429 cannot recover during this run, unlike a per-minute one."""
     text = str(error)
     return "429" in text and ("PerDay" in text or "per day" in text)
 
 
 def score_batch(batch, chars, models=None):
-    """Score one batch, falling back through MODELS when one is overloaded or spent.
-
-    Pass models to restrict which are tried: upgrading a provisional score only makes
-    sense with the primary, so falling back there would just redo the same work.
-    """
     lines = []
     for i, article in enumerate(batch):
         lines.append(
@@ -224,12 +230,9 @@ def score_batch(batch, chars, models=None):
 
 
 def ask(contents, size, system, schema, models=None):
-    """Send one request through the model chain. Returns the parsed reply, or None."""
     global out_of_quota, last_model
 
     for model in (models or MODELS):
-        # an overload lasts minutes, so once a model has refused, skip it for the rest
-        # of the run instead of paying a request per batch to hear the same answer
         if model in exhausted or model in overloaded:
             continue
         result = _try_model(model, contents, system, schema)
@@ -250,7 +253,6 @@ def ask(contents, size, system, schema, models=None):
 
 
 def _try_model(model, contents, system, schema):
-    """Returns the scores, None to give up on the batch, or "next" to try another model."""
     global requests_made
 
     for attempt in range(MAX_ATTEMPTS):
@@ -273,14 +275,11 @@ def _try_model(model, contents, system, schema):
             )
             return json.loads(response.text)
         except Exception as e:
-            # this model's allowance is spent, but the others each have their own
             if is_daily_quota(e):
                 exhausted.add(model)
                 print(f"{model} is out of requests for today, trying the next model.")
                 return "next"
             code = getattr(e, "code", None)
-            # Shedding load tends to last minutes, so retrying the same model just
-            # spends requests on a wall. A lighter model is usually free.
             if code in (503, 404):
                 overloaded.add(model)
                 reason = "is overloaded (503)" if code == 503 else "is not available (404)"
@@ -295,21 +294,9 @@ def _try_model(model, contents, system, schema):
             time.sleep(wait)
 
 
-def fetch_text(url):
-    try:
-        response = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0 (compatible; Mimir/0.1)"})
-        response.raise_for_status()
-        text = trafilatura.extract(response.text)
-    except Exception:
-        return ""
-    return (text or "")[:TEXT_STAGE_CHARS]
-
-
 with open(paths.data("filtered.json")) as f:
     articles = json.load(f)
 
-# Scores already earned are kept, so a run that is cut short by a rate limit or an
-# outage is not wasted: running again picks up only what is still missing.
 previous = {}
 if os.path.exists(paths.data("scored.json")):
     try:
@@ -325,11 +312,11 @@ if os.path.exists(paths.data("scored.json")):
 
 current = {a["url"]: a for a in articles}
 scored = [a for url, a in previous.items() if url in current]
-# the score is kept, but where the story came from is today's: the category check
-# needs to know which source it is from, and older scores predate that being recorded
 for article in scored:
     article["feed"] = current[article["url"]]["feed"]
     article["topic"] = current[article["url"]]["topic"]
+    if current[article["url"]]["summary"]:
+        article["summary"] = current[article["url"]]["summary"]
 todo = [a for a in articles if a["url"] not in previous]
 
 if scored:
@@ -340,17 +327,35 @@ if scored:
 if not todo:
     print("Nothing new to score.")
 
-# Gemini can only spot two reports of the same story when they sit in the same batch, so
-# put each topic's articles next to each other rather than in fetch order.
 todo.sort(key=lambda a: a.get("topic") or "")
 
+
+def read_google_story(article):
+    real = pages.resolve_google_news(article["url"])
+    if not real:
+        return
+    article["article_url"] = real
+    page = pages.read_page(real)
+    if page:
+        article["summary"] = page["summary"]
+        article["banner_image"] = page["banner_image"]
+
+
+google = [a for a in todo if pages.is_google_news(a["url"])]
+if google:
+    print(f"Reading the pages behind {len(google)} Google News stories...")
+    with ThreadPoolExecutor(8) as pool:
+        list(pool.map(read_google_story, google))
+    print(f"  found {sum(1 for a in google if a.get('article_url'))} of them; "
+          f"{sum(1 for a in google if a['summary'])} had a summary and "
+          f"{sum(1 for a in google if a['banner_image'])} an image")
+
+
 def score_and_record(batch):
-    """Score one batch and add the results to `scored`. Returns False if it was refused."""
-    scores = score_batch(batch, TITLE_STAGE_CHARS)
+    scores = score_batch(batch, SUMMARY_CHARS)
     if scores is None:
         return False
 
-    # articles about the same story share a story_id: keep only the best-scoring one
     stories = {}
     for item in scores:
         if 0 <= item["id"] < len(batch):
@@ -369,9 +374,6 @@ def score_and_record(batch):
                 best["also_covered_by"] += [other["source"]] + other["also_covered_by"]
         best["also_covered_by"] = sorted(set(best["also_covered_by"]))
         scored.append(best)
-        # Record the ones folded into it. Leaving them out meant the next run saw them as
-        # new, scored them alone in a small batch without their partner, and put the
-        # duplicate straight back into the briefing.
         for _, other in members:
             if other is not best:
                 other.update({"significance": 0, "category": "none", "merged_into": best["url"],
@@ -382,7 +384,6 @@ def score_and_record(batch):
     return True
 
 
-# Stage 1: score from title (and summary where there is one)
 for start in range(0, len(todo), BATCH_SIZE):
     batch = todo[start:start + BATCH_SIZE]
     print(f"Scoring articles {start + 1}-{start + len(batch)} of {len(todo)} still to do...")
@@ -394,8 +395,6 @@ for start in range(0, len(todo), BATCH_SIZE):
     if start + BATCH_SIZE < len(todo):
         time.sleep(13)
 
-# One more try for whatever was refused. Overloads pass, and without this a busy spell
-# in the middle of a run left a third of the briefing for another day.
 done = {a["url"] for a in scored}
 leftover = [a for a in todo if a["url"] not in done]
 if leftover and not out_of_quota and requests_made < REQUEST_BUDGET:
@@ -410,10 +409,6 @@ if leftover and not out_of_quota and requests_made < REQUEST_BUDGET:
 if not scored:
     raise SystemExit("Nothing was scored, so scored.json was left untouched.")
 
-# Scores from the fallback model are provisional, since an older model is worse at the
-# categorisation rules. So whenever the primary is free, re-score those with it. Only
-# the primary is tried here: falling back would just reproduce the provisional score,
-# and the briefing already has that to show.
 PRIMARY = MODELS[0]
 provisional = [a for a in scored if a.get("scored_by") and a["scored_by"] != PRIMARY
                and not a.get("merged_into")]
@@ -423,7 +418,7 @@ if provisional and PRIMARY not in overloaded and PRIMARY not in exhausted:
     upgraded = 0
     for start in range(0, len(provisional), BATCH_SIZE):
         batch = provisional[start:start + BATCH_SIZE]
-        scores = score_batch(batch, TITLE_STAGE_CHARS, models=[PRIMARY])
+        scores = score_batch(batch, SUMMARY_CHARS, models=[PRIMARY])
         if not scores:
             print("The primary model is busy again, so the rest keep their provisional "
                   "scores until a later run.")
@@ -442,43 +437,8 @@ elif provisional:
     print(f"{len(provisional)} articles have provisional scores from a fallback model. "
           f"They will be re-scored when {PRIMARY} is free.")
 
-# The second pass is an improvement, not a requirement, so skip it rather than spend
-# requests we may not have. What was scored above is still saved either way. Only
-# articles scored in this run are candidates; earlier ones have already had their turn.
-fresh = {a["url"] for a in scored if a["url"] not in previous}
-no_summary = [] if (out_of_quota or requests_made >= REQUEST_BUDGET) else \
-    [a for a in scored if not a["summary"] and a["url"] in fresh and not a.get("merged_into")]
-if out_of_quota:
-    print("Skipping the second scoring pass, since there are no requests left today.")
-candidates = sorted(no_summary, key=lambda a: a["significance"], reverse=True)[:TEXT_CANDIDATES]
-if candidates:
-    print(f"Fetching page text for {len(candidates)} top articles that have no summary...")
-for article in candidates:
-    text = fetch_text(article["url"])
-    if text:
-        article["summary"] = text
-        article["text_fetched"] = True
-    time.sleep(1)
-
-rescore = [a for a in candidates if a.get("text_fetched")]
-if candidates:
-    print(f"Got text for {len(rescore)} of {len(candidates)}. Scoring those again...")
-if rescore:
-    scores = score_batch(rescore, TEXT_STAGE_CHARS)
-    if scores:
-        for item in scores:
-            if 0 <= item["id"] < len(rescore):
-                article = rescore[item["id"]]
-                article["first_pass_significance"] = article["significance"]
-                article["significance"] = item["score"]
-                article["significance_reason"] = item["reason"]
-                article["category"] = item["category"]
-                article["scored_by"] = last_model
-                article["prompt_version"] = PROMPT_VERSION
-
 
 def rank(article):
-    """Most significant first, then most widely covered, then the freshest."""
     return (article["significance"], article.get("coverage_count") or 1,
             article.get("time_published") or "")
 
@@ -490,9 +450,6 @@ def set_aside(article, reason):
     article["significance_reason"] = reason
 
 
-# Stage 3a: a free check. Each category takes stories from its own source only, and
-# monetary, fiscal and macro stories almost always use their category's own vocabulary,
-# so a story filed there that never does is a misfile.
 guarded = 0
 for article in scored:
     category = article.get("category") or "none"
@@ -506,7 +463,6 @@ if guarded:
     print(f"The category check set aside {guarded} articles that cannot stand in the category they were filed under.")
 
 
-# Stage 3b: check the finalists, the few stories the briefing will actually show.
 def finalists():
     picked = []
     for category in CATEGORY_KEYS:
@@ -518,13 +474,11 @@ def finalists():
     return picked
 
 
-# This small request matters more than any other: it decides what is actually shown. A
-# model skipped earlier for refusing a batch of fifty may well take a request this small.
 if overloaded and finalists():
     time.sleep(VERIFY_WAIT)
     overloaded.clear()
 
-for _ in range(2):           # a second round checks the reserves if leaders were set aside
+for _ in range(2):
     batch = finalists()
     if not batch or out_of_quota or requests_made >= REQUEST_BUDGET:
         break
@@ -556,7 +510,6 @@ for _ in range(2):           # a second round checks the reserves if leaders wer
         article["verify_version"] = VERIFY_VERSION
         article["verified_category"] = article["category"]
 
-    # the same event leading two categories would fill two of five slots with one story
     for i, article in enumerate(batch):
         j = by_id.get(i, {}).get("same_event_as", -1)
         if not 0 <= j < len(batch) or j == i:
@@ -572,14 +525,49 @@ for _ in range(2):           # a second round checks the reserves if leaders wer
           f"a better category, {removed} set aside.")
 
 
+def article_text(article):
+    link = article.get("article_url") or article["url"]
+    return "" if pages.is_google_news(link) else pages.read_text(link)
+
+
+def unexplained():
+    picked = []
+    for category in CATEGORY_KEYS:
+        pool = sorted((a for a in scored if a.get("category") == category
+                       and a["significance"] >= MIN_SCORE and not a.get("merged_into")),
+                      key=rank, reverse=True)[:FINALISTS_PER_CATEGORY]
+        picked += [a for a in pool if a.get("explain_version") != EXPLAIN_VERSION]
+    return picked
+
+
+to_explain = unexplained()
+if to_explain and not out_of_quota and requests_made < REQUEST_BUDGET:
+    print(f"Writing explanations for {len(to_explain)} stories...")
+    with ThreadPoolExecutor(8) as pool:
+        texts = list(pool.map(article_text, to_explain))
+    lines = [f"id {i} | {a['category']} | {a['source']} | {a['title']}\n"
+             f"summary: {a['summary'][:400]}"
+             + (f"\narticle text: {text[:ARTICLE_CHARS]}" if text else "")
+             for i, (a, text) in enumerate(zip(to_explain, texts))]
+    explanations = ask("\n\n".join(lines), len(to_explain), EXPLAIN_PROMPT, list[Explanation])
+    if explanations:
+        written = 0
+        for item in explanations:
+            if 0 <= item["id"] < len(to_explain) and item["explainer"].strip():
+                to_explain[item["id"]]["explainer"] = item["explainer"].strip()
+                to_explain[item["id"]]["explain_version"] = EXPLAIN_VERSION
+                written += 1
+        print(f"Wrote {written} explanations.")
+    else:
+        print("Could not write the explanations this time; the next run will try again.")
+
+
 scored.sort(key=rank, reverse=True)
 briefing = [a for a in scored if a["significance"] >= MIN_SCORE]
 
 with open(paths.data("scored.json"), "w") as f:
     json.dump(scored, f, indent=2)
 
-# Same data as a script file, so index.html also works when opened directly from the
-# file system, where the browser refuses to fetch scored.json.
 with open(paths.data("briefing_data.js"), "w") as f:
     f.write("window.MIMIR_DATA = ")
     json.dump(scored, f)
