@@ -45,6 +45,7 @@ def search(query):
 
 def article(item):
     source = (item.findtext("source") or "").strip()
+    source_tag = item.find("source")
     title = html.unescape(item.findtext("title") or "").strip()
     if source and title.endswith(" - " + source):
         title = title[: -len(" - " + source)]
@@ -57,6 +58,7 @@ def article(item):
         "title": title,
         "url": (item.findtext("link") or "").strip(),
         "source": source,
+        "source_url": source_tag.get("url", "") if source_tag is not None else "",
         "time_published": published,
         "summary": "",
         "banner_image": "",
