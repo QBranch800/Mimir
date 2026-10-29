@@ -149,7 +149,9 @@ be no briefing to show. The individual steps can still be run on their own:
 5. `score_news.py` asks Gemini to rate each article from 1 to 10 against the five categories.
    First it finds the real address of each new Google News story and reads its summary and
    image from the outlet's own page. Paywalled sites often refuse; those stories keep just
-   their headline. It tags each article with the category it belongs to, then checks its own
+   their headline. A summary always ends on a full sentence: when an outlet's description
+   stops mid-sentence, Mimir completes it from the article's text, or shortens it to its last
+   full sentence, or leaves it out. It tags each article with the category it belongs to, then checks its own
    work before writing `scored.json`:
    - a story filed under a category whose source it did not come from, or under monetary
      policy, fiscal policy or macro data without ever using that category's own vocabulary,
