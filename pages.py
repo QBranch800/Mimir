@@ -8,6 +8,57 @@ import trafilatura
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
                          "(KHTML, like Gecko) Chrome/126 Safari/537.36"}
 GOOGLE_NEWS = "https://news.google.com/"
+SUMMARY_LIMIT = 600
+ABBREVIATIONS = {"mr", "mrs", "ms", "dr", "st", "jr", "sr", "corp", "inc", "ltd", "co", "gov",
+                 "sen", "rep", "gen", "lt", "no", "vs", "jan", "feb", "mar", "apr", "jun", "jul",
+                 "aug", "sep", "sept", "oct", "nov", "dec", "est", "approx", "dept", "univ"}
+SENTENCE_END = re.compile(r"[.!?][\"'’”)\]]*(?=\s+[^a-z\s]|\s*$)")
+
+
+def sentence_ends(text):
+    for match in SENTENCE_END.finditer(text):
+        end = match.end()
+        if match.group()[0] == "." and text[match.start() - 1:match.start()] == ".":
+            continue
+        word = (text[:match.start()].split() or [""])[-1].lstrip("\"'‘“(")
+        if (match.group()[0] == "." and end < len(text)
+                and (len(word) == 1 or re.fullmatch(r"[A-Za-z](\.[A-Za-z])+", word)
+                     or word.lower() in ABBREVIATIONS)):
+            continue
+        yield end
+
+
+def whole_sentences(text, limit=SUMMARY_LIMIT):
+    text = " ".join((text or "").split())
+    cut = 0
+    for end in sentence_ends(text):
+        if end > limit and cut:
+            break
+        cut = end
+    return text[:cut]
+
+
+def is_whole(text):
+    return bool(text) and whole_sentences(text, len(text)) == text
+
+
+def summary_from(description, body):
+    description = " ".join((description or "").split())
+    if is_whole(description):
+        return whole_sentences(description)
+    paragraphs = [" ".join(p.split()) for p in (body or "").split("\n")]
+    stem = re.sub(r"\s*(\.\.\.|…)$", "", description).rsplit(" ", 1)[0][:80]
+    if len(stem) >= 30:
+        for paragraph in paragraphs:
+            start = paragraph.find(stem)
+            if start >= 0 and whole_sentences(paragraph[start:]):
+                return whole_sentences(paragraph[start:])
+    if whole_sentences(description):
+        return whole_sentences(description)
+    for paragraph in paragraphs:
+        if len(paragraph.split()) >= 12 and whole_sentences(paragraph):
+            return whole_sentences(paragraph)
+    return ""
 
 
 def canonical_url(url):
@@ -24,12 +75,14 @@ def read_page(url):
         meta = trafilatura.extract_metadata(response.text, default_url=url)
         if meta is None:
             return None
-        summary = meta.description or trafilatura.extract(response.text) or ""
+        description = " ".join((meta.description or "").split())
+        body = "" if is_whole(description) else trafilatura.extract(response.text) or ""
+        summary = summary_from(description, body)
     except Exception:
         return None
     return {
         "title": " ".join((meta.title or "").split()),
-        "summary": " ".join(summary.split())[:600],
+        "summary": summary,
         "banner_image": meta.image or "",
         "source": meta.sitename or "",
     }
