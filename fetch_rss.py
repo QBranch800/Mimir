@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 import requests
 
 import paths
-from pages import HEADERS, canonical_url
+from pages import HEADERS, canonical_url, whole_sentences
 
 FEEDS = [
     ("Federal Reserve", "https://www.federalreserve.gov/feeds/press_monetary.xml"),
@@ -37,15 +37,12 @@ def clean(text):
 
 def describe(text):
     text = re.sub(r"<ul\b.*?</ul>", " ", html.unescape(text or ""), flags=re.S | re.I)
-    paragraphs = []
-    for block in re.split(r"</p>|<br\s*/?>", text, flags=re.I):
-        paragraph = clean(block)
-        if paragraph and not re.search(r"[.!?…\"'”’)]$", paragraph):
-            paragraph += "."
-        if paragraph:
-            paragraphs.append(paragraph)
-    summary = re.sub(r"\s*Continue reading\W*$", "", " ".join(paragraphs))
-    return summary[:600]
+    paragraphs = [clean(block) for block in re.split(r"</p>|<br\s*/?>", text, flags=re.I)]
+    paragraphs = [p for p in paragraphs if p and not re.fullmatch(r"Continue reading\W*", p)]
+    for i, paragraph in enumerate(paragraphs):
+        if not re.search(r"[.!?][\"'”’)\]]*$|(…|\.\.\.)\]?$|[:;,–-]$", paragraph):
+            paragraphs[i] = paragraph + "."
+    return whole_sentences(" ".join(paragraphs))
 
 
 def published(item):
