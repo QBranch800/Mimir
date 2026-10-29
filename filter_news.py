@@ -13,6 +13,7 @@ BLOCKED_SOURCES = {
     "Stock Titan", "Insider Monkey", "Pluang", "scanx.trade",
     "Simply Wall St", "Simply Wall Street",
     "富途牛牛", "Futubull", "Moomoo",
+    "BigGo Finance", "finance.biggo.com", "تسنیم", "WBFF",
 }
 BLOCKED_TITLE_PATTERNS = [
     re.compile(r"\b[\d,]+ shares\b", re.I),
