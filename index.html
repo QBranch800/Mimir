@@ -650,38 +650,42 @@ function move(key, delta) {
   saveSettings(); render();
 }
 
-function trim(textValue, limit) {
-  const t = (textValue || "").trim();
-  if (t.length <= limit) return t;
-  const cut = t.slice(0, limit);
-  const lastSpace = cut.lastIndexOf(" ");
-  return (lastSpace > limit * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[,;:.\s]+$/, "") + "…";
+const ABBREVIATIONS = new Set(["mr", "mrs", "ms", "dr", "st", "jr", "sr", "corp", "inc", "ltd",
+  "co", "gov", "sen", "rep", "gen", "lt", "no", "vs", "jan", "feb", "mar", "apr", "jun", "jul",
+  "aug", "sep", "sept", "oct", "nov", "dec", "est", "approx", "dept", "univ"]);
+
+function sentenceEnds(t) {
+  const ends = [];
+  const pattern = /[.!?]["'’”)\]]*(?=\s+[^a-z\s]|\s*$)/g;
+  let m;
+  while ((m = pattern.exec(t)) !== null) {
+    const end = m.index + m[0].length;
+    const period = m[0][0] === ".";
+    if (period && t[m.index - 1] === ".") continue;
+    const word = (t.slice(0, m.index).trim().split(/\s+/).pop() || "").replace(/^["'‘“(]+/, "");
+    if (period && end < t.length
+        && (word.length === 1 || /^[A-Za-z](\.[A-Za-z])+$/.test(word)
+            || ABBREVIATIONS.has(word.toLowerCase()))) continue;
+    ends.push(end);
+  }
+  return ends;
 }
 
-function splitSummary(textValue, leadLimit = 300, leadMin = 120) {
-  const t = (textValue || "").trim();
-  if (!t) return { lead: "", rest: [] };
-  if (t.length <= leadLimit) return { lead: t, rest: [] };
-
-  let cut = -1;
-  const ends = /[.!?]["'’”)\]]?(?=\s|$)/g;
-  let m;
-  while ((m = ends.exec(t)) !== null) {
-    const end = m.index + m[0].length;
-    if (end > leadLimit) break;
-    if (end >= leadMin || cut < 0) cut = end;
+function wholeSentences(textValue, limit = Infinity) {
+  const t = (textValue || "").split(/\s+/).filter(Boolean).join(" ");
+  let cut = 0;
+  for (const end of sentenceEnds(t)) {
+    if (end > limit && cut) break;
+    cut = end;
   }
-  let midSentence = false;
-  if (cut < 0) {
-    const space = t.lastIndexOf(" ", leadLimit);
-    cut = space > leadLimit * 0.5 ? space : leadLimit;
-    midSentence = true;
-  }
+  return t.slice(0, cut);
+}
 
-  const lead = t.slice(0, cut).trim().replace(/[,;:]$/, "") + (midSentence ? "…" : "");
-  const restText = t.slice(cut).trim();
-  const rest = restText ? restText.split(/\n{2,}/).map(p => p.trim()).filter(Boolean) : [];
-  return { lead, rest };
+function splitSummary(textValue, leadLimit = 300) {
+  const t = wholeSentences(textValue);
+  const lead = wholeSentences(t, leadLimit);
+  const restText = t.slice(lead.length).trim();
+  return { lead, rest: restText ? [restText] : [] };
 }
 
 function renderNav() {
@@ -734,7 +738,8 @@ function renderStories() {
     const mid = el("div");
     mid.append(el("div", "eyebrow", cat.label));
     mid.append(el("div", "story-title", a.title));
-    if (a.summary) mid.append(el("p", "story-dek", trim(a.summary, 150)));
+    const dek = wholeSentences(a.summary, 160);
+    if (dek) mid.append(el("p", "story-dek", dek));
     const meta = el("div", "story-meta");
     meta.append(el("span", null, a.source));
     const rel = relativeTime(a.time_published);
