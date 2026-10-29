@@ -1,4 +1,5 @@
 import re
+from urllib.parse import urlparse
 
 SOURCE = {
     "monetary_policy": "rss",
@@ -71,17 +72,40 @@ GUARDED = {"monetary_policy", "us_fiscal_policy", "us_macro_data"}
 US_ONLY = {"us_fiscal_policy", "us_macro_data"}
 _US_CASED = re.compile(r"\bU\.?S\.?A?\b")
 _US_WORDS = re.compile(
-    r"united states|\bamerica(?:n|ns)?\b|\bcongress|\bsenate\b|white house|\btreasury\b|"
-    r"\bfederal\b|\bthe fed\b|\bwashington\b|\btrump\b|\birs\b|\bcbo\b|\bbessent\b|"
+    r"united states|(?<!latin )(?<!south )(?<!central )(?<!north )\bamerica(?:n|ns)?\b|"
+    r"white house|\bthe fed\b|\bwashington\b|\btrump\b|\birs\b|\bcbo\b|\bbessent\b|"
     r"wall street|\bdow\b|s&p 500|\bnasdaq\b|\bbls\b|bureau of labor|commerce department|"
-    r"\bhouse (?:passes|passed|votes?|voted|republicans|democrats|speaker|majority)\b|"
     r"\brepublicans?\b|\bdemocrats?\b|\bgop\b",
     re.I)
+_US_SHARED_WORDS = re.compile(
+    r"\bcongress|\bsenate\b|\btreasury\b|\bfederal\b|"
+    r"\bhouse (?:passes|passed|votes?|voted|republicans|democrats|speaker|majority)\b",
+    re.I)
+_FOREIGN = re.compile(
+    r"\b(?:canad(?:a|ian|ians)|ottawa|ontario|quebec|alberta|british columbia|manitoba|"
+    r"saskatchewan|nova scotia|carney|britain|british|england|scotland|scottish|wales|welsh|"
+    r"westminster|whitehall|downing street|hmrc|obr|starmer|australian?|canberra|chalmers|"
+    r"albanese|new zealand|india|modi|sitharaman|lok sabha|rajya sabha|crores?|lakhs?|rupees?|"
+    r"pakistan|pakistani|bangladesh|sri lanka|nepal|nigerian?|kenyan?|ghana|south africa|"
+    r"philippines?|filipinos?|marcos|malaca[ñn]ang|manila|malaysian?|ringgit|indonesia|"
+    r"singapore|germany|german|bundestag|ireland|irish|eurozone|euro area|european union|"
+    r"(?<!new )mexico|mexican|brazil|brazilian|argentina|chile|colombia|peru|uk)\b|\bu\.k\.",
+    re.I)
+_FOREIGN_SITE = re.compile(
+    r"\.(?:ca|ph|uk|au|nz|in|pk|bd|lk|np|ng|ke|gh|za|my|sg|id|de|ie|mx|br|ar|cl|pe)$")
 
 
 def is_about_us(article):
     text = _text(article)
-    return bool(_US_CASED.search(text) or _US_WORDS.search(text))
+    if _US_CASED.search(text) or _US_WORDS.search(text):
+        return True
+    return bool(_US_SHARED_WORDS.search(text)) and not is_foreign(article)
+
+
+def is_foreign(article):
+    sites = [urlparse(article.get(key) or "").netloc for key in ("source_url", "article_url")]
+    return bool(_FOREIGN.search(f"{_text(article)} {article.get('source') or ''}")
+                or any(_FOREIGN_SITE.search(site) for site in sites if site))
 
 
 def _text(article):
