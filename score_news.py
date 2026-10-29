@@ -562,6 +562,9 @@ if to_explain and not out_of_quota and requests_made < REQUEST_BUDGET:
         print("Could not write the explanations this time; the next run will try again.")
 
 
+for article in scored:
+    article["summary"] = pages.whole_sentences(article.get("summary"))
+
 scored.sort(key=rank, reverse=True)
 briefing = [a for a in scored if a["significance"] >= MIN_SCORE]
 
