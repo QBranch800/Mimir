@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 import requests
 
+import outlets
 import paths
 from pages import HEADERS
 
@@ -34,10 +35,24 @@ QUERIES = {
     ],
 }
 LOOKBACK = "1d"
+MAX_QUERY_CHARS = 190
 
 
-def search(query):
-    url = SEARCH_URL.format(query=quote(f"{query} when:{LOOKBACK}"))
+def search_text(query, sites):
+    return f"when:{LOOKBACK} ({query}) ({' OR '.join('site:' + site for site in sites)})"
+
+
+def site_groups(query):
+    groups = [[]]
+    for site in outlets.SITES:
+        if groups[-1] and len(search_text(query, groups[-1] + [site])) > MAX_QUERY_CHARS:
+            groups.append([])
+        groups[-1].append(site)
+    return groups
+
+
+def search(text):
+    url = SEARCH_URL.format(query=quote(text))
     response = requests.get(url, headers=HEADERS, timeout=15)
     response.raise_for_status()
     return ET.fromstring(response.content).findall(".//item")
@@ -70,18 +85,19 @@ worked = 0
 for category, queries in QUERIES.items():
     seen = set()
     for query in queries:
-        try:
-            items = search(query)
-        except (requests.RequestException, ET.ParseError) as exc:
-            print(f"Skipping a {category} search: {type(exc).__name__}")
-            continue
-        worked += 1
-        for item in items:
-            found = article(item)
-            if found["title"] and found["url"] and found["url"] not in seen:
-                seen.add(found["url"])
-                results.setdefault(category, []).append(found)
-        time.sleep(1)
+        for sites in site_groups(query):
+            try:
+                items = search(search_text(query, sites))
+            except (requests.RequestException, ET.ParseError) as exc:
+                print(f"Skipping a {category} search: {type(exc).__name__}")
+                continue
+            worked += 1
+            for item in items:
+                found = article(item)
+                if found["title"] and found["url"] and found["url"] not in seen:
+                    seen.add(found["url"])
+                    results.setdefault(category, []).append(found)
+            time.sleep(1)
     print(f"{category:17} {len(results.get(category, [])):4} articles")
 
 if not worked:
