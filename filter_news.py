@@ -4,19 +4,11 @@ import difflib
 import json
 import os
 import re
-from urllib.parse import urlparse
 
 import categories
+import outlets
 import paths
 
-BLOCKED_SOURCES = {
-    "MarketBeat", "CBIZ", "AD HOC NEWS", "Kalkine Media",
-    "Stock Titan", "Insider Monkey", "Pluang", "scanx.trade",
-    "Simply Wall St", "Simply Wall Street",
-    "富途牛牛", "Futubull", "Moomoo",
-    "BigGo Finance", "finance.biggo.com", "تسنیم", "WBFF",
-}
-BLOCKED_SITES = {"biggo.com", "biggo.com.tw", "biggo.jp"}
 BLOCKED_TITLE_PATTERNS = [
     re.compile(r"\b[\d,]+ shares\b", re.I),
     re.compile(r"\b(takes?|buys?|acquires?|sells?)\b.*\b(position|stake|shares)\b", re.I),
@@ -132,10 +124,8 @@ def about_an_earlier_month(title, today):
     return any(b in STALE_MONTHS_BACK for b in back) and not back & {0, 1}
 
 
-def blocked_site(article):
-    hosts = [urlparse(article.get(key) or "").netloc.lower() for key in ("source_url", "url")]
-    return any(host == site or host.endswith("." + site)
-               for host in hosts if host for site in BLOCKED_SITES)
+def from_listed_outlet(article):
+    return any(outlets.site_of(article.get(key)) for key in ("source_url", "url"))
 
 
 def category_for(article):
@@ -151,7 +141,7 @@ def story_words(title):
 now = datetime.datetime.now(datetime.timezone.utc)
 kept = []
 kept_keys = []
-dropped = {"too old": 0, "about an earlier month": 0, "blocked source": 0,
+dropped = {"too old": 0, "about an earlier month": 0, "not from a listed outlet": 0,
            "stock filler title": 0, "market roundup": 0, "not plainly about its category": 0}
 for article in unique.values():
     age = age_hours(article, now)
@@ -161,8 +151,8 @@ for article in unique.values():
     if about_an_earlier_month(article["title"], now.astimezone()):
         dropped["about an earlier month"] += 1
         continue
-    if article["source"] in BLOCKED_SOURCES or blocked_site(article):
-        dropped["blocked source"] += 1
+    if not from_listed_outlet(article):
+        dropped["not from a listed outlet"] += 1
         continue
     if any(p.search(article["title"]) for p in BLOCKED_TITLE_PATTERNS):
         dropped["stock filler title"] += 1
