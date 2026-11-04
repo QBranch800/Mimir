@@ -76,10 +76,10 @@ jobs:
           fi
           echo "Refused to score without a key, and wrote nothing. Correct."
 
-          "$APP" --step fetch_rss
-          test -s "$MIMIR_DATA_DIR/rss_results.json" \
-            || { echo "FAIL: fetching the RSS feeds produced nothing"; exit 1; }
-          echo "Fetched the RSS feeds from inside the packaged app."
+          "$APP" --step fetch_google
+          test -s "$MIMIR_DATA_DIR/google_results.json" \
+            || { echo "FAIL: searching Google News produced nothing"; exit 1; }
+          echo "Searched Google News from inside the packaged app."
 
       - name: Package
         shell: bash

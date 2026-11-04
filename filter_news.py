@@ -60,7 +60,6 @@ STALE_MONTHS_BACK = range(2, 6)
 MAX_PER_CATEGORY = 10
 
 SOURCE_FILES = {
-    "rss_results.json": "rss",
     "google_results.json": "google",
     "gdelt_results.json": "gdelt",
 }

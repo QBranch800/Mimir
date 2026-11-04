@@ -14,6 +14,11 @@ from pages import HEADERS
 
 SEARCH_URL = "https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
 QUERIES = {
+    "monetary_policy": [
+        '"Federal Reserve" OR "FOMC" OR "the Fed" OR "rate cut" OR "rate hike"',
+        '"European Central Bank" OR "ECB" OR "Bank of England" OR "Bank of Japan"',
+        '"central bank" OR "monetary policy" OR "interest rates" OR "rate decision"',
+    ],
     "us_fiscal_policy": [
         '"government shutdown" OR "funding bill" OR "continuing resolution" OR "stopgap"',
         '"debt ceiling" OR "federal deficit" OR "national debt" OR "Congressional Budget Office"',

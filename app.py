@@ -82,7 +82,6 @@ def write_env(updates):
 
 
 FULL_RUN = [
-    ("fetch_rss.py", "Monetary policy feeds"),
     ("fetch_google.py", "Google News headlines"),
     ("fetch_gdelt.py", "GDELT geopolitics"),
     ("filter_news.py", "Filtering and deduping"),
