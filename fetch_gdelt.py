@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 import requests
 
+import outlets
 import pages
 import paths
 
@@ -17,27 +18,12 @@ FILE_URL = "http://data.gdeltproject.org/gdeltv2/{stamp}.export.CSV.zip"
 LOOKBACK_HOURS = 24
 PAGES_TO_READ = 20
 
-ALLOWED_DOMAINS = {
-    "reuters.com", "apnews.com", "bbc.com", "bbc.co.uk", "ft.com", "aljazeera.com",
-    "cnbc.com", "bloomberg.com", "wsj.com", "nytimes.com", "washingtonpost.com",
-    "theguardian.com", "economist.com", "politico.com", "axios.com", "cnn.com", "npr.org",
-    "dw.com", "france24.com", "scmp.com", "thehindu.com", "straitstimes.com",
-    "japantimes.co.jp", "channelnewsasia.com", "foreignpolicy.com", "marketwatch.com",
-    "barrons.com",
-}
-
 ACTOR1_CODE, ACTOR1_COUNTRY = 5, 7
 ACTOR2_CODE, ACTOR2_COUNTRY = 15, 17
 IS_ROOT_EVENT = 25
 NUM_ARTICLES = 33
 DATE_ADDED = 59
 SOURCE_URL = 60
-
-
-def allowed_domain(url):
-    netloc = urlparse(url).netloc.lower()
-    netloc = netloc[4:] if netloc.startswith("www.") else netloc
-    return next((d for d in ALLOWED_DOMAINS if netloc == d or netloc.endswith("." + d)), None)
 
 
 def download(stamp):
@@ -73,7 +59,7 @@ def describe(url):
         "title": title,
         "summary": page.get("summary", ""),
         "banner_image": page.get("banner_image", ""),
-        "source": page.get("source") or allowed_domain(url),
+        "source": page.get("source") or outlets.site_of(url),
     }
 
 
@@ -105,7 +91,7 @@ for text in files:
             continue
         events += 1
         url = row[SOURCE_URL]
-        if not is_geopolitical(row) or not allowed_domain(url):
+        if not is_geopolitical(row) or not outlets.site_of(url):
             continue
         count = row[NUM_ARTICLES]
         weight[url] = weight.get(url, 0) + (int(count) if count.isdigit() else 0)
