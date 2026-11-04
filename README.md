@@ -6,7 +6,7 @@ A daily briefing app that surfaces genuinely market-moving news across five fixe
 
 ## Status
 
-Early development, but usable end to end. Each category draws on one source: RSS feeds, Google News searches or GDELT. It strictly filters what they return down to at most ten stories per category, scores those for significance with Gemini, and shows the leading story in each as a briefing you read in the browser. A local server adds a refresh button and somewhere to keep your API key, and the briefing refreshes itself when you open the app. [Running the pipeline yourself](#running-the-pipeline-yourself) describes each step.
+Early development, but usable end to end. Each category draws on one source: Google News searches or GDELT. It strictly filters what they return down to at most ten stories per category, scores those for significance with Gemini, and shows the leading story in each as a briefing you read in the browser. A local server adds a refresh button and somewhere to keep your API key, and the briefing refreshes itself when you open the app. [Running the pipeline yourself](#running-the-pipeline-yourself) describes each step.
 
 ## Setup
 
@@ -58,7 +58,7 @@ so nothing runs while Mimir is closed, and a refresh never happens behind your b
 also press Refresh now on the Today page at any time, or switch refreshing on open off in
 Settings.
 
-A refresh takes a minute or two, during which the previous briefing stays on screen. If you
+A refresh takes a few minutes, during which the previous briefing stays on screen. If you
 would rather it was ready the moment you look, add Mimir to your Login Items (macOS) or Startup
 folder (Windows), so it opens and refreshes when the computer starts.
 
@@ -122,31 +122,39 @@ instead, activate the virtual environment and use one command:
 python3 run_all.py
 ```
 
-That runs the five steps below in order. If a news source cannot be reached the run carries
+That runs the four steps below in order. If a news source cannot be reached the run carries
 on with the others, but it stops if filtering or scoring fails, since there would
-be no briefing to show. The individual steps can still be run on their own:
+be no briefing to show.
 
-1. `fetch_rss.py` fetches monetary policy from the Federal Reserve, the ECB and the Bank of
-   England, and from the CNBC, Guardian, BBC and NPR news desks that report on central
-   banks, into `rss_results.json`. It needs no API key, and its stories are minutes old.
-2. `fetch_google.py` fetches US fiscal policy, US macro data and tech and AI headlines from
-   Google News into `google_results.json`, by searching for the words that define each
-   category ("government shutdown", "jobless claims", "OpenAI" and so on) over the last day.
-   It needs no key. Google gives only a headline, an outlet and a link to a Google redirect
-   page; step 5 fills in the rest.
-3. `fetch_gdelt.py` fetches geopolitics from GDELT's raw event files for the last 24 hours
+Every story comes from one of 21 outlets, listed with their websites in `outlets.py`: CNN, the
+BBC, The Wall Street Journal, Reuters, Axios, The New York Times, Bloomberg, Al Jazeera, The
+Guardian, The Washington Post, Fox News, the Associated Press, CNBC, The National, Yahoo
+Finance, the Financial Times, The Economist, Forbes, CBS News, Politico and NBC News. The
+company press releases the Financial Times hosts on markets.ft.com are left out.
+
+The individual steps can still be run on their own:
+
+1. `fetch_google.py` fetches monetary policy, US fiscal policy, US macro data and tech and AI
+   headlines from Google News into `google_results.json`, by searching those outlets for the
+   words that define each category ("Federal Reserve", "government shutdown", "jobless
+   claims", "OpenAI" and so on) over the last day. Google ignores the end of a query longer
+   than about 200 characters, so each search names only as many outlets as fit, and each set
+   of words is searched several times to cover them all. That makes this the slowest step, at
+   around three minutes. It needs no API key. Google gives only a headline, an outlet
+   and a link to a Google redirect page; step 4 fills in the rest.
+2. `fetch_gdelt.py` fetches geopolitics from GDELT's raw event files for the last 24 hours
    into `gdelt_results.json`. It keeps events between two countries, or involving a body such
-   as the UN, reported by outlets on an allowlist, ranks the articles by how widely their
-   events were reported, and reads the headline and summary of the top 20. It needs no key.
-4. `filter_news.py` merges all three into `filtered.json`, strictly, since every story it
-   passes on costs part of a Gemini request. It drops anything more than 24 hours old, any
-   headline about a month two to five months back, known sources of stock filler, noisy titles
-   and recurring market roundups, and any story that is not plainly about a category its source
+   as the UN, reported by those outlets, ranks the articles by how widely their events were
+   reported, and reads the headline and summary of the top 20. It needs no key.
+3. `filter_news.py` merges both into `filtered.json`, strictly, since every story it
+   passes on costs part of a Gemini request. It drops anything more than 24 hours old,
+   anything not from one of those outlets, any headline about a month two to five months
+   back, noisy titles and recurring market roundups, and any story that is not plainly about a category its source
    was chosen for, judged by that category's own words. It merges near-duplicate titles, then
    keeps at most ten stories per category, the ones carried by the most outlets, so a whole day
    normally fits in one Gemini request. A macro data release gets one of those ten however many
    outlets report it.
-5. `score_news.py` asks Gemini to rate each article from 1 to 10 against the five categories.
+4. `score_news.py` asks Gemini to rate each article from 1 to 10 against the five categories.
    First it finds the real address of each new Google News story and reads its summary and
    image from the outlet's own page. Paywalled sites often refuse; those stories keep just
    their headline. A summary always ends on a full sentence: when an outlet's description
