@@ -7,7 +7,6 @@ PYTHON = sys.executable
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 STEPS = [
-    ("fetch_rss.py",     "Monetary policy feeds",     False),
     ("fetch_google.py",  "Google News headlines",     False),
     ("fetch_gdelt.py",   "GDELT geopolitics",         False),
     ("filter_news.py",   "Filtering and deduping",    True),

@@ -2,7 +2,7 @@ import re
 from urllib.parse import urlparse
 
 SOURCE = {
-    "monetary_policy": "rss",
+    "monetary_policy": "google",
     "us_fiscal_policy": "google",
     "us_macro_data": "google",
     "geopolitics": "gdelt",

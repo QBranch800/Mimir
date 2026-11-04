@@ -7,7 +7,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 SEP = ";" if os.name == "nt" else ":"
 
-PIPELINE_STEPS = ["fetch_rss", "fetch_google", "fetch_gdelt", "filter_news", "score_news"]
+PIPELINE_STEPS = ["fetch_google", "fetch_gdelt", "filter_news", "score_news"]
 
 ASSETS = ["index.html", ("assets", "assets")]
 
