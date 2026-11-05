@@ -2,8 +2,10 @@ import csv
 import datetime
 import io
 import json
+import re
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlparse
 
 import requests
 
@@ -23,6 +25,9 @@ NUM_ARTICLES = 33
 DATE_ADDED = 59
 SOURCE_URL = 60
 
+LIVE_BLOG_PATH = re.compile(
+    r"/(?:live|liveblog|live-blog|live-news|live-updates)(?:/|$)|live-updates|live-blog", re.I)
+
 
 def download(stamp):
     try:
@@ -39,6 +44,10 @@ def is_geopolitical(row):
     international = len(countries) == 2
     involves_body = row[ACTOR1_CODE].startswith("IGO") or row[ACTOR2_CODE].startswith("IGO")
     return (international or involves_body) and row[IS_ROOT_EVENT] == "1"
+
+
+def is_live_blog(url):
+    return bool(LIVE_BLOG_PATH.search(urlparse(url).path))
 
 
 def describe(url):
@@ -81,7 +90,7 @@ for text in files:
             continue
         events += 1
         url = row[SOURCE_URL]
-        if not is_geopolitical(row) or not outlets.site_of(url):
+        if not is_geopolitical(row) or not outlets.site_of(url) or is_live_blog(url):
             continue
         count = row[NUM_ARTICLES]
         weight[url] = weight.get(url, 0) + (int(count) if count.isdigit() else 0)

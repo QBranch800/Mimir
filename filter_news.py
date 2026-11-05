@@ -40,6 +40,10 @@ ROUNDUP_TITLE_PATTERNS = [
     re.compile(r"\b(opening|closing) bell\b", re.I),
 ]
 
+LIVE_BLOG_TITLE = re.compile(
+    r"^live\b|^(?:\w+ ){0,2}live\s*[:|]|\blive[- ](?:updates?|blog|coverage|analysis|commentary|results|"
+    r"vote counts?|event|stream)\b|\bas it happened\b|[–—-]\s*live$", re.I)
+
 SIMILARITY_THRESHOLD = 0.8
 
 MAX_AGE_HOURS = 24
@@ -141,7 +145,8 @@ now = datetime.datetime.now(datetime.timezone.utc)
 kept = []
 kept_keys = []
 dropped = {"too old": 0, "about an earlier month": 0, "not from a listed outlet": 0,
-           "stock filler title": 0, "market roundup": 0, "not plainly about its category": 0}
+           "stock filler title": 0, "market roundup": 0, "live blog": 0,
+           "not plainly about its category": 0}
 for article in unique.values():
     age = age_hours(article, now)
     if age is not None and age > MAX_AGE_HOURS:
@@ -158,6 +163,9 @@ for article in unique.values():
         continue
     if any(p.search(article["title"]) for p in ROUNDUP_TITLE_PATTERNS):
         dropped["market roundup"] += 1
+        continue
+    if LIVE_BLOG_TITLE.search(article["title"]):
+        dropped["live blog"] += 1
         continue
     category = category_for(article)
     if not category:
