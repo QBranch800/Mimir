@@ -144,12 +144,14 @@ The individual steps can still be run on their own:
    and a link to a Google redirect page; step 4 fills in the rest.
 2. `fetch_gdelt.py` fetches geopolitics from GDELT's raw event files for the last 24 hours
    into `gdelt_results.json`. It keeps events between two countries, or involving a body such
-   as the UN, reported by those outlets, ranks the articles by how widely their events were
-   reported, and reads the headline and summary of the top 20. It needs no key.
+   as the UN, reported by those outlets, leaves out live blogs, ranks the articles by how
+   widely their events were reported, and reads the headline and summary of the top 20. An
+   article whose page cannot be read is dropped rather than given a headline made from its
+   address. It needs no key.
 3. `filter_news.py` merges both into `filtered.json`, strictly, since every story it
    passes on costs part of a Gemini request. It drops anything more than 24 hours old,
    anything not from one of those outlets, any headline about a month two to five months
-   back, noisy titles and recurring market roundups, and any story that is not plainly about a category its source
+   back, noisy titles, recurring market roundups and live blogs, and any story that is not plainly about a category its source
    was chosen for, judged by that category's own words. It merges near-duplicate titles, then
    keeps at most ten stories per category, the ones carried by the most outlets, so a whole day
    normally fits in one Gemini request. A macro data release gets one of those ten however many
