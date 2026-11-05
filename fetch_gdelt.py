@@ -2,10 +2,8 @@ import csv
 import datetime
 import io
 import json
-import re
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlparse
 
 import requests
 
@@ -43,20 +41,12 @@ def is_geopolitical(row):
     return (international or involves_body) and row[IS_ROOT_EVENT] == "1"
 
 
-def title_from_url(url):
-    slug = max(urlparse(url).path.split("/"), key=len)
-    slug = re.sub(r"\.\w+$|[-_]?\d{5,}$", "", slug)
-    words = [w for w in re.split(r"[-_]+", slug) if w and not w.isdigit()]
-    return " ".join(words).capitalize() if len(words) >= 4 else ""
-
-
 def describe(url):
-    page = pages.read_page(url) or {}
-    title = page.get("title") or title_from_url(url)
-    if not title:
+    page = pages.read_page(url)
+    if not page or not page["title"]:
         return None
     return {
-        "title": title,
+        "title": page["title"],
         "summary": page.get("summary", ""),
         "banner_image": page.get("banner_image", ""),
         "source": page.get("source") or outlets.site_of(url),
