@@ -8,6 +8,7 @@ import trafilatura
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
                          "(KHTML, like Gecko) Chrome/126 Safari/537.36"}
 GOOGLE_NEWS = "https://news.google.com/"
+GOOGLE_CONSENT = {"SOCS": "CAI"}
 SUMMARY_LIMIT = 600
 ABBREVIATIONS = {"mr", "mrs", "ms", "dr", "st", "jr", "sr", "corp", "inc", "ltd", "co", "gov",
                  "sen", "rep", "gen", "lt", "no", "vs", "jan", "feb", "mar", "apr", "jun", "jul",
@@ -105,7 +106,7 @@ def resolve_google_news(url):
     try:
         article_id = urlparse(url).path.rsplit("/", 1)[-1]
         page = requests.get(GOOGLE_NEWS + "rss/articles/" + article_id,
-                            headers=HEADERS, timeout=15).text
+                            headers=HEADERS, cookies=GOOGLE_CONSENT, timeout=15).text
         signature = re.search(r'data-n-a-sg="([^"]+)"', page)
         timestamp = re.search(r'data-n-a-ts="([^"]+)"', page)
         if not (signature and timestamp):
@@ -117,7 +118,7 @@ def resolve_google_news(url):
         response = requests.post(
             GOOGLE_NEWS + "_/DotsSplashUi/data/batchexecute",
             data={"f.req": json.dumps([[["Fbv4je", json.dumps(request), None, "generic"]]])},
-            headers=HEADERS, timeout=15)
+            headers=HEADERS, cookies=GOOGLE_CONSENT, timeout=15)
         for line in response.text.splitlines():
             if line.startswith('[["wrb.fr"'):
                 reply = json.loads(json.loads(line)[0][2])
