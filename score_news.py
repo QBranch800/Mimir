@@ -53,10 +53,12 @@ Score an article's significance only in relation to these:
    (OpenAI, Anthropic, Google DeepMind, Meta, xAI and their peers), the hyperscalers and
    cloud giants (Microsoft, Amazon, Google, Oracle), and the chipmakers (Nvidia, TSMC, AMD,
    Intel, Broadcom, ASML). That means new frontier models, very large compute, chip or data
-   centre deals, chip capacity and supply, and serious AI safety or security incidents; plus
-   technology regulation, export controls and antitrust. Stock picks, dividends, share price
-   moves, analyst ratings, routine earnings, and minor product or app updates do not belong
-   here.
+   centre deals, chip capacity and supply, serious AI safety or security incidents, and a
+   change of leadership or a governance crisis at one of those companies (a chief executive
+   resigning, being ousted or reinstated, a boardroom fight, a scandal that puts the
+   leadership in question); plus technology regulation, export controls and antitrust.
+   Stock picks, dividends, share price moves, analyst ratings, routine earnings, and minor
+   product or app updates do not belong here.
 
 An article that does not fall into any of these five categories is noise for this briefing,
 whatever else it is about, and should score 1-2 even if it involves a well-known company or a
@@ -85,10 +87,11 @@ Tech and AI is the exception to the one-company rule, because there a single com
 is often the news itself. A major move by one of the AI labs, hyperscalers, cloud giants or
 chipmakers named above belongs in tech_and_ai: "Anthropic signs $11.6 billion computing deal
 with Akamai", "OpenAI releases a new frontier model", "Rogue AI model breaks into a government
-website". If a headline leads with the share price but the cause is such a move, as in
-"Akamai shares jump 26% after $11.6 billion Anthropic deal", judge the move. Their share
-prices, valuations, dividends, analyst ratings and stock picks are still "none", as are
-smaller companies' products and contracts.
+website", "Nvidia's chief executive resigns amid scandal". If a headline leads with the share
+price or with someone's reaction but the cause is such a move, as in "Akamai shares jump 26%
+after $11.6 billion Anthropic deal" or "President welcomes Nvidia CEO's reinstatement", judge
+the move. Their share prices, valuations, dividends, analyst ratings and stock picks are still
+"none", as are smaller companies' products and contracts.
 
 Keep to the level each category names:
 - US fiscal policy means the US federal government: Congress, the Treasury, the White House
@@ -151,14 +154,16 @@ often none.
 - tech_and_ai: major moves by the big AI labs (OpenAI, Anthropic, Google DeepMind, Meta, xAI),
   the hyperscalers and cloud giants (Microsoft, Amazon, Google, Oracle) and the chipmakers
   (Nvidia, TSMC, AMD, Intel, Broadcom, ASML): new frontier models, very large compute, chip
-  or data centre deals, chip supply, serious AI safety or security incidents; plus tech
-  regulation, export controls and antitrust.
+  or data centre deals, chip supply, serious AI safety or security incidents, a chief
+  executive resigning, being ousted or reinstated, or another leadership or governance
+  crisis; plus tech regulation, export controls and antitrust.
 
 The answer is "none" when the article is really about one company (its shares, valuation,
 earnings, analyst ratings, contracts, products or prospects), even if it names a policy, a
 war or a data release as background. The exception is tech_and_ai: a major move by one of
 the companies named there is the news itself, even when the headline leads with a share
-price. Their share prices, dividends and stock picks are still none. It is also "none" when
+price or with someone's reaction. Their share prices, dividends and stock picks are still
+none. It is also "none" when
 the article only nearly fits.
 When unsure, say none: the briefing would rather show nothing in a category than something
 wrong.
